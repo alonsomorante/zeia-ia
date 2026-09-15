@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reporte semanal de cobertura</title>
+<style>
+  :root { --verde:#1e9e62; --verde-bg:#e2f5e9; --ambar:#c77e0a; --ambar-bg:#fdf0d5;
+          --rojo:#c93a3a; --rojo-bg:#fbe3e3; --tinta:#222; --gris:#6b7280;
+          --linea:#e5e7eb; --fondo:#f7f8fa; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; color:var(--tinta);
+         background:var(--fondo); margin:0; padding:24px; }
+  .hoja { max-width:1100px; margin:0 auto; background:#fff; border:1px solid var(--linea);
+          border-radius:10px; padding:28px 32px; }
+  h1 { font-size:22px; margin:0 0 2px; }
+  .sub { color:var(--gris); font-size:13px; margin-bottom:14px; }
+  .kpis { display:flex; gap:10px; flex-wrap:wrap; margin:12px 0 20px; }
+  .kpi { border:1px solid var(--linea); border-radius:8px; padding:8px 14px;
+         font-size:13px; background:#fafafa; }
+  .kpi b { font-size:17px; }
+  h2 { font-size:17px; margin:26px 0 4px; padding-bottom:6px;
+       border-bottom:2px solid var(--linea); }
+  .nota { font-size:12.5px; color:var(--gris); margin:4px 0 10px; }
+  table { border-collapse:collapse; width:100%; font-size:12.5px; margin-bottom:8px; }
+  th, td { border:1px solid var(--linea); padding:6px 8px; text-align:center; }
+  th.dia { background:#f1f3f5; font-weight:600; white-space:nowrap; }
+  td.nombre, th.nombre { text-align:left; min-width:220px; }
+  tr.sala td { background:#eef2ff; font-weight:700; text-align:left; }
+  td.completo { background:var(--verde-bg); color:#14663f; }
+  td.parcial  { background:var(--ambar-bg); color:#7c4d05; font-weight:600; }
+  td.hueco    { background:var(--rojo-bg); color:var(--rojo); font-weight:700; }
+  .leyenda { display:flex; gap:14px; font-size:12.5px; margin:6px 0 14px; flex-wrap:wrap; }
+  .leyenda span::before { content:""; display:inline-block; width:12px; height:12px;
+      border-radius:3px; margin-right:5px; vertical-align:-1px; }
+  .leyenda .c::before { background:var(--verde-bg); border:1px solid var(--verde); }
+  .leyenda .p::before { background:var(--ambar-bg); border:1px solid var(--ambar); }
+  .leyenda .h::before { background:var(--rojo-bg); border:1px solid var(--rojo); }
+  ul.mal { font-size:13px; margin:6px 0 0 18px; padding:0; }
+  ul.mal li { margin:3px 0; }
+  .vacio { font-size:13px; color:var(--gris); font-style:italic; }
+  .toolbar { display:flex; gap:8px; margin-bottom:14px; }
+  .toolbar button, .toolbar a { font-size:13px; padding:6px 12px; border-radius:6px;
+      border:1px solid var(--linea); background:#fff; cursor:pointer;
+      text-decoration:none; color:var(--tinta); }
+  #error { color:var(--rojo); font-weight:600; }
+  @media print {
+    body { background:#fff; padding:0; }
+    .hoja { border:none; border-radius:0; max-width:none; padding:0; }
+    .toolbar { display:none; }
+    table { page-break-inside:auto; }
+    tr { page-break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="hoja">
+  <div class="toolbar">
+    <button onclick="window.print()">🖨 Imprimir / PDF</button>
+    <a href="/gaps">← Volver a /gaps</a>
+  </div>
+  <h1 id="titulo">Reporte semanal de cobertura</h1>
+  <div class="sub" id="generado"></div>
+  <div id="error"></div>
+
+  <div class="kpis" id="kpis" style="display:none"></div>
+
+  <h2>⚡ Energía — cobertura por punto y día</h2>
+  <div class="nota" id="nota-energia"></div>
+  <div class="leyenda"><span class="c">Completo (≥90%)</span>
+    <span class="p">Parcial</span><span class="h">Sin datos</span></div>
+  <div id="tabla-energia"></div>
+  <div id="muertos-energia"></div>
+
+  <h2>🌡 Ambiental — cobertura por sala, indicador y día</h2>
+  <div class="nota" id="nota-ambiental"></div>
+  <div class="leyenda"><span class="c">Completo (≥90% del ritmo)</span>
+    <span class="p">Parcial</span><span class="h">Sin datos</span></div>
+  <div id="tabla-ambiental"></div>
+</div>
+
+<script>
+async function main() {
+  let d;
+  try {
+    const r = await fetch("/api/reporte-semanal" + location.search);
+    if (!r.ok) throw new Error("HTTP " + r.status + ": " + await r.text());
+    d = await r.json();
+  } catch (e) {
+    document.getElementById("error").textContent =
+      "No se pudo cargar el reporte: " + e.message;
+    return;
+  }
+  document.getElementById("titulo").textContent =
+    "Reporte semanal de cobertura — " + d.titulo_rango;
+  document.getElementById("generado").textContent = "Generado el " + d.generado;
+  document.title = "Reporte " + d.desde + " al " + d.hasta;
+
+  const dias = d.dias;  // [{iso, etiqueta:"Lunes 07 de septiembre", corta}]
+  const headDias = dias.map(x =>
+    `<th class="dia" title="${x.etiqueta}">${x.corta}</th>`).join("");
+
+  // ---- KPIs ----
+  const e = d.energia, a = d.ambiental;
+  document.getElementById("kpis").style.display = "flex";
+  document.getElementById("kpis").innerHTML =
+    `<div class="kpi">⚡ Cobertura energía: <b>${e.cobertura_pct}%</b></div>` +
+    `<div class="kpi">⚡ Puntos con huecos: <b>${e.puntos_incidencias}</b> de ${e.puntos_total}</div>` +
+    `<div class="kpi">🌡 Cobertura ambiental: <b>${a.cobertura_pct}%</b></div>` +
+    `<div class="kpi">🌡 Salas con huecos: <b>${a.salas_incidencias}</b> de ${a.salas_total}</div>`;
+
+  // ---- Energía: solo puntos con incidencia ----
+  const malE = e.filas.filter(f => f.con_incidencia);
+  document.getElementById("nota-energia").textContent =
+    malE.length
+      ? `${malE.length} punto(s) con huecos en la semana ` +
+        `(${e.puntos_ok} con cobertura perfecta, omitidos).`
+      : `Los ${e.puntos_total} puntos tuvieron cobertura completa toda la semana.`;
+  if (malE.length) {
+    let h = `<table><tr><th class="nombre">Punto</th>${headDias}</tr>`;
+    for (const f of malE) {
+      h += `<tr><td class="nombre">${f.etiqueta}</td>`;
+      for (const x of dias) {
+        const c = f.dias[x.iso] || {estado:"hueco", lecturas:0, pct:0};
+        h += `<td class="${c.estado}" title="${x.etiqueta}: ${c.lecturas} lecturas">${c.pct}%</td>`;
+      }
+      h += "</tr>";
+    }
+    document.getElementById("tabla-energia").innerHTML = h + "</table>";
+  }
+  if (e.puntos_sin_datos && e.puntos_sin_datos.length) {
+    // Agrupar por empresa/sede para que sea legible ("Emp/Sede · Punto")
+    const grupos = {};
+    for (const item of e.puntos_sin_datos) {
+      const i = item.indexOf(" · ");
+      const sede = i >= 0 ? item.slice(0, i) : "Otras";
+      const pto = i >= 0 ? item.slice(i + 3) : item;
+      (grupos[sede] = grupos[sede] || []).push(pto);
+    }
+    const partes = Object.keys(grupos).sort().map(
+      s => `<b>${s}</b> (${grupos[s].length}): ${grupos[s].join(", ")}`);
+    document.getElementById("muertos-energia").innerHTML =
+      `<div class="nota">Puntos sin ningún dato en la semana:<br>` +
+      partes.join("<br>") + `.</div>`;
+  }
+
+  // ---- Ambiental: agrupado por sala, solo combos con incidencia ----
+  const malA = a.filas.filter(f => f.con_incidencia);
+  const salasMal = [...new Set(malA.map(f => f.sala))];
+  document.getElementById("nota-ambiental").textContent =
+    malA.length
+      ? `${salasMal.length} sala(s) con huecos en la semana ` +
+        `(${a.combos_ok} de ${a.combos_total} combos sala×indicador perfectos, omitidos).`
+      : `Las ${a.salas_total} salas tuvieron cobertura completa toda la semana.`;
+  if (malA.length) {
+    // Agrupar por sala conservando orden
+    const porSala = {};
+    for (const f of malA) (porSala[f.sala] = porSala[f.sala] || []).push(f);
+    let h = `<table><tr><th class="nombre">Sala · Indicador</th>${headDias}</tr>`;
+    for (const sala of Object.keys(porSala)) {
+      h += `<tr class="sala"><td colspan="${dias.length + 1}">${sala}</td></tr>`;
+      for (const f of porSala[sala]) {
+        h += `<tr><td class="nombre">↳ ${f.indicador}</td>`;
+        for (const x of dias) {
+          const c = f.dias[x.iso] || {estado:"hueco", lecturas:0, pct:0};
+          h += `<td class="${c.estado}" title="${x.etiqueta}: ${c.lecturas} lecturas">${c.pct}%</td>`;
+        }
+        h += "</tr>";
+      }
+    }
+    document.getElementById("tabla-ambiental").innerHTML = h + "</table>";
+  }
+
+  // ---- Detalle de incidencias ----
+  const det = [];
+  for (const i of e.incidencias) det.push(`<li>⚡ ${i.punto}: ${i.detalle}</li>`);
+  for (const i of a.incidencias) det.push(`<li>🌡 ${i.punto}: ${i.detalle}</li>`);
+  if (det.length) {
+    const div = document.createElement("div");
+    div.innerHTML = "<h2>Detalle de incidencias</h2><ul class='mal'>" +
+      det.join("") + "</ul>";
+    document.querySelector(".hoja").appendChild(div);
+  }
+}
+main();
+</script>
+</body>
+</html>
