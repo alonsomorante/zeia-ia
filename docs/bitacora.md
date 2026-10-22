@@ -1840,3 +1840,290 @@ conserva por los hallazgos de la base.
 - Quedan FUERA, porque no son de esta sesión: el `guard_local_target` de
   `scripts/sync_db.sh`, `scripts/webapp_en_vivo.cmd` y `projects/` (sin
   trackear). `.env` está gitignored.
+
+
+## Sesión 19-oct-2026 (casa) — Avisos del monitor por Telegram (fase 1: canal)
+
+### Pedido
+- Sistema de notificaciones poco invasivo para el equipo interno (no el
+  cliente): avisar solo lo grave o una anomalía severa de una sala/equipo.
+  Primero propuesta de momentos para notificar; luego canal **gratuito**.
+
+### Propuesta acordada (pendiente de implementar)
+- Niveles: 🔴 inmediato 24/7 (plataforma sin datos >30 min; gateway/sede
+  caída = ≥2 equipos del mismo gateway o ½ sede sin datos >20 min, cortados
+  con ≤10 min de diferencia → 1 aviso), 🟠 inmediato en horario laboral
+  (equipo/sala ≥60 min sin lecturas o 3 envíos perdidos; batería <10%;
+  "transmite pero no mide" = valor fijo ≥6 h o contador fijo ≥24 h), 🟡
+  resumen 08:00 sin sonido (día anterior <90%; enlace degradado <70% ≥6 h o
+  SNR −10 dB vs su semana; batería <20%; activo sin primera lectura en 24 h;
+  dato imposible / salto de contador).
+- Anti-ruido: aviso de apertura + cierre (con duración), agrupar por sala y
+  gateway, histéresis (cierra tras 30 min estable, reabre sin avisar si cae
+  en <2 h), escalar a 🟠 si lleva 3 días en el resumen, modo mantenimiento,
+  "monitor sin conexión" ≠ equipos caídos, y no reenviar `alerts_alert`.
+- Ojo para la fase 2: el ritmo ambiental del monitor es el promedio de 14
+  días → una degradación sostenida se vuelve "normal" (Zona Roja). Para los
+  avisos usar la cadencia nominal (moda del intervalo, como el agua de
+  `reporte_conectividad.py`). Estado de incidentes en SQLite local (las
+  bases son solo lectura).
+- Canal: **Telegram** (Bot API gratis; ~20 msg/min por grupo; envío sin
+  sonido para 🟡). Descartados: ntfy público (cualquiera que adivine el
+  tópico lee los avisos), WhatsApp oficial (los mensajes que inicia la
+  empresa se cobran; CallMeBot no es oficial ni manda a grupos), correo solo
+  sirve para el resumen.
+
+### Implementado (fase 1: canal)
+- `src/telegram.py`: `send_message(text, silent=, html=)`, `get_me`,
+  `get_updates`, `chats_from_updates` (detecta grupos, bot expulsado y
+  migración a supergrupo). httpx (ya instalado). Errores `TelegramError`
+  legibles y **sin el token** (se tapa y se corta el traceback con la URL).
+- `src/config.py`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (`.env.example`
+  actualizado; `.env` NO se tocó).
+- `scripts/telegram_setup.py`: valida el token, lista los grupos donde está
+  el bot y dice qué `TELEGRAM_CHAT_ID` poner; `--test` manda 2 mensajes
+  (🔴 con sonido, 🟡 silencioso).
+- `tests/test_telegram.py`: 12 pruebas sin red (`httpx.MockTransport`).
+  Total: 39 OK. Simulación del setup completo con Telegram falso OK.
+- Canal configurado por el usuario: bot @zeia_alerts_bot en el grupo
+  "ZEIA-ALERTS" (token e id del grupo en `.env`). `telegram_setup.py`
+  confirmó el id y `--test` envió los 2 mensajes (Telegram respondió OK a
+  ambos). Ojo: el usuario del bot es `zeia_alerts_bot`, no el ejemplo
+  `zeia_alertas_bot` de las instrucciones. El bot se agregó con el enlace
+  `t.me/zeia_alerts_bot?startgroup=alertas` (agrega + manda /start).
+
+### Comando /salas: foto del estado de hoy (misma sesión)
+- Pedido: un comando en Telegram que mande una "foto" del general de las
+  salas donde se vea qué sala tiene rojo (huecos / falta de lecturas).
+- `src/foto_salas.py`: una fila por sala (Sanna San Borja, 13), barra de
+  00:00 a 24:00 en tramos de 10 min (verde = llegaron lecturas, ámbar =
+  cortes en el tramo, rojo = nada, gris = aún no pasa), % del día con datos
+  y frase de estado; lo peor arriba. Texto de la foto = solo lo que requiere
+  atención (🔴 sin datos ahora, 🟠 atraso, 🟡 cortes hoy) + "✅ N sin cortes".
+  Aviso si la base no está en vivo (fuente congelada).
+- Reglas (iguales al tablero de /monitor salvo 2): cada lectura cubre la
+  cadencia del sensor; la sala toma su peor sensor; se ignoran huecos de
+  1-2 min y ADEMÁS una lectura perdida suelta (corte = ≥ cadencia + 2 min).
+  Con la regla del tablero, 8 de 13 salas salían "con cortes" hoy por
+  pérdidas de 1 paquete. La cadencia es la MODA del intervalo del día (el
+  monitor usa el promedio de 14 días: Zona Verde quedó en "cada 10 min" por
+  su semana de batería baja y eso le escondía cortes).
+- Render: HTML auto-contenido → PNG con Playwright (ya estaba en el venv con
+  su Chromium; fallback Edge/Chrome del sistema). ~8-11 s por foto (estado
+  ~5 s + lecturas + navegador). Playwright NO está en requirements.txt.
+- `scripts/telegram_bot.py`: long polling (getUpdates 50 s), `/salas` y
+  `/ayuda` (alias /start, /help). Solo responde en `TELEGRAM_CHAT_ID`
+  (cualquiera puede escribirle al bot por privado: se ignora), ignora
+  comandos para otros bots, de bots o de hace >5 min (bot apagado). Menú de
+  comandos con setMyCommands (scope = el grupo). Un error de la base se
+  responde en el grupo. 409 (otro proceso leyendo el bot) → reintenta en
+  60 s. Candado local 127.0.0.1:47831.
+- `src/telegram.py`: + `send_photo` (multipart), `send_chat_action`,
+  `set_my_commands`, `get_updates(offset, timeout, allowed_updates)` y
+  `reply_to`. Telegram recuerda `allowed_updates`: `telegram_setup.py` pasa
+  `[]` para volver a ver altas al grupo.
+- Verificado: 98 pruebas OK (20 foto_salas, 11 telegram_bot, 18 telegram,
+  27 reporte, 22 indice). Foto real de hoy (13 salas; solo el Ducto
+  resonador con 1 corte de 10 min a las 07:39, confirmado con las lecturas
+  crudas de room 325: 07:34 → 07:49) y del jue 15-oct (Subestación caída
+  desde 11:31, Zona Roja 11:26-15:33, Zona Verde con cortes hasta el cambio
+  de batería). Foto real enviada al grupo 15:06 (11.1 s). Bot corriendo en
+  segundo plano desde 15:06 (log `logs/telegram_bot.out.log`).
+- En paralelo otra sesión modifica `webapp.py`, `web/static/*`,
+  `src/indice.py`, `tests/test_indice.py`, `inicio.html`, `nav.js`: no se
+  tocaron (por eso el bot es un proceso aparte y no se reinició la webapp).
+- Pregunta: "/salas solo muestra Sanna San Borja". Es correcto (verificado
+  en vivo en valhalladb): es la única sede con sensores activos (13/13, todas
+  con datos en 7 días). Las otras 38 sedes tienen 0 dispositivos activos y
+  su última lectura va de feb-2023 (Body Tech) a oct-2025 (Aceros Arequipa
+  Pisco-ICA, 27-oct); las de prueba (Zeia, Machu picchu food, Monitoreo
+  casa) llegan hasta abr-2026. Ojo: BanBif SÍ existe en ambiental (sede
+  Central, 4 salas, última lectura 19-abr-2024); corrige lo anotado el
+  11-oct. Si se activan sensores en otra sede, `/salas` la incluye sola.
+- Hallazgo: el medidor de agua de Scotiabank SITE Barranco no envía desde el
+  19-oct 11:40 (consulta a las 15:14; reporta cada 30 min). El monitor en
+  vivo no incluye agua, así que no se ve en ningún lado.
+- Propuesto (pendiente de decisión del usuario): `/energia` y `/agua` con la
+  misma foto (una por cliente, en álbum) + filtro opcional por cliente, o un
+  solo `/estado` con una foto por cliente que junte sus módulos.
+
+### 3 comandos con lo PEOR de hoy: /ambiental, /energia, /agua (misma sesión)
+- Pedido final del usuario (descartó lo propuesto arriba): 3 comandos,
+  agua / ambiental / energía; cada uno manda SOLO lo peor de hoy, de TODAS
+  las empresas juntas (no por empresa), de peor a mejor. Lo que está bien no
+  se muestra ("esto es para identificar cuáles salas están mal"). Si no
+  entran en la imagen, un aviso abajo.
+- `src/foto_salas.py` reescrito: `foto_peores(modulo)`.
+  - Filas: ambiental = sala (peor sensor), energía = punto/equipo (con
+    tienda · tablero), agua = tubería (con tienda · medidor).
+  - Solo filas con problemas: 🔴 sin datos ahora, 🟠 con atraso, 🟡 con
+    cortes hoy; orden por gravedad y luego menor cobertura. Máx. 10 en la
+    imagen; si hay más, recuadro rojo al pie con los que faltan y el detalle
+    en el texto del mensaje (≤1,024 chars, recortado con "… y N más").
+  - Sin problemas → no hay imagen, solo "✅ Todo bien: los N … sin cortes".
+  - Corte = hueco ≥ max(5, cadencia + 2) min (energía 5 min; ambiental 2
+    lecturas seguidas perdidas). Detalle con horario del corte más largo
+    ("1 corte: 07:39–07:49 (10 min)").
+  - Estado propio por la última lectura y la cadencia: atraso > max(5,
+    2.5×cad) y sin datos > max(15, 6×cad) min (= 5/15 energía y 12/30
+    ambiental del monitor; agua cada 30 min → 75/180).
+  - Solo lo activo: fuera lo que no envía nada en 30 días (`DIAS_ACTIVO`):
+    BK/KFC/Madam Tusan/Pizza Hut y los puntos de Scotiabank Barranco/SITE
+    Barranco que nunca transmitieron. Empresas de prueba fuera (EXCLUIR).
+  - Agua (no está en el monitor): inventario sede → tubería → medidor,
+    minutos de hoy, moda del intervalo de 7 días para la madrugada y
+    detección de base congelada (max de readings_reading). No lee
+    `dev_eui_password`.
+- `scripts/telegram_bot.py`: comandos /ambiental, /energia, /agua, /ayuda
+  (/salas queda como alias de /ambiental). Menú del grupo actualizado
+  (verificado con getMyCommands). `scripts/telegram_bot.cmd` (nuevo):
+  arranca el bot contra producción en vivo, mismas variables de proceso que
+  `webapp_en_vivo.cmd`, log en `logs/telegram_bot.out.log`.
+- Resultado en vivo 15:43: ambiental 1 de 13 (Ducto resonador, corte
+  07:39–07:49); energía 1 de 32 (Scotiabank Jockey Plaza Llave general,
+  corte 08:49–09:07 de 18 min: lecturas crudas 08:48 → 09:07); agua 1 de 2
+  (SITE Barranco sin datos desde las 11:40: lecturas crudas cada 30 min
+  hasta 11:40, nada después). ~5-10 s por comando.
+- Pruebas: 109 OK (29 foto_salas, 13 telegram_bot, 18 telegram, 27 reporte,
+  22 indice). Bot reiniciado 15:45 con el .cmd (oculto, PID cmd 32684).
+- LECCIÓN (herramienta de shell): la salida de Python redirigida sale en
+  cp1252 y la herramienta la muestra cortada en el primer acento, aunque el
+  script termine bien. Correr con `$env:PYTHONIOENCODING='utf-8'`. En la
+  consola real del usuario no pasa.
+
+### Pendiente
+- Fase 2: motor de reglas en modo simulación (sin enviar) + backtest de 4
+  semanas de producción para ajustar umbrales; horario 🟠 propuesto
+  08:00–20:00 (por confirmar). Requiere PC siempre encendida con túnel.
+
+
+## Sesión 21-oct-2026 — Avisos automáticos por Telegram (fase 2: motor + backtest)
+
+### Pedido
+- "Completar el sistema de notificaciones": la fase 2 que quedó pendiente el
+  19-oct (motor de reglas en simulación + backtest de 4 semanas + ajuste).
+
+### Estado al empezar
+- `main` 1 commit adelante de `origin/main` (`786df9b "pushea bro"`, 19-oct:
+  canal de Telegram, bot, `projects/`, `src/indice.py`…), sin pushear.
+  Árbol limpio, 109 pruebas OK. El bot NO estaba corriendo (último log 19-oct
+  15:52, timeout de red y Ctrl+C).
+
+### Exploración de producción (solo lectura, por túnel)
+- Se vigilan 46 unidades: 32 puntos de energía (Oechsle 18, Sanna 13,
+  Scotiabank Jockey Plaza 1), 13 sensores de Sanna (38 indicadores) y 1
+  medidor de agua (Jockey Plaza). Sin primera lectura: Scotiabank Barranco
+  (233), SITE Barranco (234) y el agua de SITE Barranco (3). **Las lecturas
+  del medidor de agua 3 ya no existen** (el 19-oct tenía hasta las 11:40):
+  las borraron en la fuente. El medidor 4 (Barranco) es virtual
+  (`dependency=true`, 10 % del 3): se excluye.
+- Historial ambiental (`data_json`): battery (~1 vez/día), snr, rssi, devEUI
+  y `password` (no se lee). `equipments_device` ya tiene alertas propias de
+  la plataforma por correo (`no_data_alert`, timeout 60 min) en los 13.
+- Contadores: 68 (Red de emergencia) siempre plano; los ADW210 de Sanna
+  (34–41) mandan lecturas con EPpos = 0 (38: 9,630 en 8 días); tras un hueco
+  el contador salta lo acumulado (normal: se normaliza por minuto).
+- Valor fijo ambiental: máx. 10.7 h en un indicador (quirófanos estables),
+  nunca todos a la vez → umbral "otro indicador fijo" = 24 h.
+
+### Implementado
+- `src/gateways.py`: mapeo EUI → gateway de Sanna (antes dentro de
+  `webapp.py`, que ahora lo importa; verificado 3 gateways / 26 EUIs).
+- `src/avisos.py` (motor PURO, sin base ni red): `Reglas`, `Unidad`, `Obs`,
+  `Incidente`, `Estado` (JSON), `evaluar()` → eventos, `componer()` →
+  mensajes, `resumen_diario()`, mantenimientos.
+- `src/avisos_datos.py`: `Historia` = presencia minuto a minuto en memoria
+  (energía por hora con máscara `bit_or` de 60 bits), contador por hora sin
+  ceros, corridas de valores iguales, agua, batería y SNR. SQL solo lectura
+  (`validate_sql` + sesión read-only). Carga por tramos de 7 días.
+- `src/avisos_vivo.py`: `Store` SQLite local (`data/avisos.sqlite` en
+  modo enviar, `data/avisos_simulacion.sqlite` en simular; gitignored),
+  `Motor` (ciclo cada 5 min, recarga incremental, inventario cada hora,
+  reintento de envíos hasta 6 h), `/avisos`, `/mantenimiento`, `backtest()`.
+- `scripts/avisos.py` + `scripts/avisos.cmd`: `--backtest`, `--ciclo`
+  (simulado, estado en memoria), `--estado`. Ninguno envía nada.
+- Bot (`scripts/telegram_bot.py`): arranca el motor en un hilo según
+  `AVISOS_MODO`; comandos nuevos `/avisos` y `/mantenimiento <qué> [2h|30m|1d]`
+  (`fin` para terminar; busca por empresa, sede, gateway, sala o equipo).
+- `src/config.py`: `AVISOS_MODO` (apagado | **simular** por defecto |
+  enviar), `AVISOS_HORARIO` (08:00-20:00), `AVISOS_RESUMEN` (08:00),
+  `AVISOS_CICLO_MIN` (5). `.env.example` actualizado; `.env` sin tocar.
+- `src/tunnel.py`: candado para que el hilo de avisos y el de comandos no
+  lancen el mismo túnel a la vez.
+
+### Reglas finales (ajustadas con el backtest)
+- 🔴 24/7: gateway/sede caída = la mitad o más de lo que reportaba en el
+  gateway (o sede) sin datos > 20 min con 2 cortados a ≤10 min, o ≥3 a la
+  vez; solo cuenta lo cortado en las últimas 24 h. Si otro módulo del mismo
+  gateway sigue entero, dice "el gateway funciona". Plataforma: ≥80 % de un
+  módulo > 30 min en ≥2 sedes (retiene los avisos de gateway mientras tanto).
+- 🟠 08:00–20:00: sin datos ≥60 min; batería < 10 %; no mide (contador sin
+  avanzar ≥24 h contando solo horas CON lecturas y 1.5× lo normal en su
+  semana, o contador en 0; CO₂ fijo ≥3 h; agua tubería vacía ≥6 h); 3 días
+  seguidos en el resumen. De noche espera; si volvió antes, solo resumen.
+- 🟡 08:00 sin sonido: < 90 %, cortes ≥60 min, bloques de 6 h < 70 %,
+  "pierde lecturas sueltas", SNR −10 dB vs su p75 de 14 días, batería < 20 %,
+  sin primera lectura (si cambia la lista o los lunes), saltos de contador.
+- Anti-ruido: cierres sin sonido; histéresis (30 min estable con huecos
+  < 30 min; recaída < 2 h solo si dura 2 h); lo ya avisado (batería, racha)
+  solo vuelve a sonar si el corte dura 6 h; lo que ya volvió no se avisa
+  tarde; los 🟠 que cruzan el umbral a ≤10 min van juntos; un corte parcial
+  que crece se avisa UNA vez más como "caído".
+- Cadencia nominal = la menor de las modas diarias de 14 días (la moda de la
+  semana se corría a 10 min con la batería de Zona Verde).
+
+### Backtest 23-sep → 20-oct (28 días, producción, 95 s de carga)
+- 1ª versión: 29 avisos con sonido (7 el 06-oct; 8 🟠 de Zona Verde, uno por
+  cada corte; 5 🔴 por 2 salas sueltas del Gateway 1, Zona Verde y Zona Roja,
+  que perdían paquetes).
+- **Final: 11 con sonido en 4 semanas (0.4/día, máx. 4 el 06-oct)**: 🔴 6 =
+  03-oct 10:05 G1 (11 equipos de energía, 26 min; "siguen 7 salas: el
+  gateway funciona"), 05-oct 13:50 G1 (4 ADW300), 06-oct 03:55 G1 caído (12
+  de 19: energía + 6 salas, escalonado de 02:11 a 05:29), 07-oct 15:35
+  Oechsle sede entera (18 de 18, 36 min), 15-oct 11:55 y 18-oct 13:35
+  Gateway 2 (2 de 2); 🟠 5 = Ascensor PB (contador en 0, 30-sep), TF-VM
+  Oechsle (contador quieto 29 h, 06-oct), Zona Verde batería 8 % (06-oct),
+  racha de 3 días cuarto de bombas (06-oct) y Zona Roja (09-oct).
+- 36 incidentes cerrados sin sonar: 22 dentro de cortes de gateway ya
+  avisados (18 del Gateway 1 el 05/06-oct y 4 del Gateway 2), 13 cortes de
+  Zona Verde con la batería ya avisada (< 6 h) y la Zona Roja del 15-oct
+  (racha conocida, 4 h 39 min). Todo sale en el resumen.
+- Mensaje más largo: 2,386 caracteres (resumen del 06-oct; tope 4,096).
+- Detalle: `analisis/avisos_backtest_2026-09-23_2026-10-20.txt` (gitignored)
+  con todos los mensajes y la lista de lo callado con el motivo.
+- `scripts\avisos.cmd --ciclo` contra producción 15:11: 46 vigilados, nada
+  abierto; resumen de ayer: Red de emergencia 55 % (pierde lecturas sueltas).
+
+### Lecciones
+- SQLAlchemy 2: `Row` tiene `.t`, `.count`, `.index`, `.tuple` propios → un
+  alias de columna `t` devuelve la FILA. Se renombró a `ts`; la fila falsa de
+  las pruebas imita ese `.t` para que no vuelva a pasar.
+- La consulta `bit_or` de 4 semanas tardó 46 s y otra vez 130 s (carga del
+  servidor; el plan es index-only). Por eso la carga va por tramos de 7 días.
+- PowerShell 5.1 manda el texto por tubería a Python en ASCII: los scripts
+  con acentos van en un archivo temporal UTF-8, no por `@' '@ | python -`.
+
+### Verificación
+- 177 pruebas OK (68 nuevas en `test_avisos`, `test_avisos_datos`,
+  `test_avisos_vivo` y `test_telegram_bot`), sin red ni base.
+- Bot reiniciado 15:16 con `scripts\telegram_bot.cmd` (oculto, PID cmd 23352)
+  en modo simular: primer ciclo 15:16–15:17 (carga de 15 días, resumen de
+  ayer simulado), ciclo incremental 15:21; `--estado`: 46 vigilados, nada
+  abierto. No se envió ningún aviso automático.
+
+### Pendiente
+- Dejar el motor unos días en simulación y revisar con `/avisos`; después
+  `AVISOS_MODO=enviar` en `.env` (lo cambia el usuario) y reiniciar el bot.
+  Requiere la PC encendida con túnel.
+- Confirmar con el equipo: horario 08:00–20:00 de los 🟠 y si avisar Red de
+  emergencia (punto 68, contador siempre plano: no se avisa porque nunca
+  cambia en su semana).
+
+### Push (misma sesión)
+- A pedido del usuario: 2 commits (feat + docs) y push a `origin/main`, junto
+  con `786df9b` ("pushea bro", 19-oct: `projects/`, bot y fotos de Telegram,
+  `src/indice.py`, `inicio.html`, `nav.js`…), que seguía sin pushear.
+- `origin/main` traía `ee26e45` (Alonso, 19-oct: sesión del 14-oct en la Mac y
+  "Agent skills" en AGENTS.md; solo docs): se integró con un merge.
+- Revisión de secretos antes de subir (101 archivos): solo valores de ejemplo
+  en los `.env.example` y variables (`"${...}"`) en los `sync_db.sh`.
