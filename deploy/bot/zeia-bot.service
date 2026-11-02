@@ -1,0 +1,50 @@
+# Bot de Telegram de ZEIA (cobertura / lecturas). Lo instala deploy/bot/instalar.sh.
+#   sudo systemctl start|stop|restart|status zeia-bot
+#   journalctl -u zeia-bot -f          (log en vivo)
+[Unit]
+Description=ZEIA - bot de Telegram (cobertura y lecturas)
+After=network-online.target
+Wants=network-online.target
+# Sin límite de reintentos: si Telegram o la red fallan un rato, sigue intentando
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=zeiabot
+Group=zeiabot
+WorkingDirectory=/opt/zeia-bot/app
+Environment=HOME=/opt/zeia-bot/home
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/zeia-bot/browsers
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=utf-8
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/zeia-bot/venv/bin/python scripts/telegram_bot.py
+Restart=always
+RestartSec=15
+TimeoutStopSec=20
+
+# Tope de memoria: Chromium sube a ~1 GB unos segundos al dibujar una foto
+MemoryMax=1536M
+
+# Aislamiento: el bot solo puede escribir su estado (data/) y su HOME (known_hosts
+# de ssh y caché de Chromium). El código, el .env y el resto del disco quedan
+# de solo lectura para él; no ve /home ni /root; no puede ganar privilegios.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/zeia-bot/app/data /opt/zeia-bot/home
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

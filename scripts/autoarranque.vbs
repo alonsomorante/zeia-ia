@@ -1,7 +1,8 @@
 ' Autoarranque ZEIA-IA (lo registra scripts\instalar_autoarranque.cmd).
 ' Al iniciar sesion lanza el bot de Telegram y la webapp en vivo, ocultos.
 ' No duplica: si ya hay un proceso con telegram_bot.py o webapp.py no relanza
-' ese servicio. Log: logs\autoarranque.log
+' ese servicio. Si existe data\bot_en_servidor.txt, el bot corre en la EC2
+' (deploy\bot\README.md) y aqui solo se lanza la webapp. Log: logs\autoarranque.log
 Option Explicit
 
 Dim sh, fso, raiz
@@ -12,7 +13,9 @@ sh.CurrentDirectory = raiz
 
 If Not fso.FolderExists(raiz & "\logs") Then fso.CreateFolder(raiz & "\logs")
 
-If ProcesoCorriendo("telegram_bot.py") Then
+If fso.FileExists(raiz & "\data\bot_en_servidor.txt") Then
+    Log "bot NO lanzado: corre en el servidor (data\bot_en_servidor.txt)"
+ElseIf ProcesoCorriendo("telegram_bot.py") Then
     Log "bot ya estaba corriendo (telegram_bot.py)"
 Else
     sh.Run "cmd /c """ & raiz & "\scripts\telegram_bot.cmd""", 0, False

@@ -1,0 +1,3 @@
+# Archivos que corren en Linux (deploy/bot): siempre LF, incluso en Windows
+deploy/bot/*.sh text eol=lf
+deploy/bot/*.service text eol=lf

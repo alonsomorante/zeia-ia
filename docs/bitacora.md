@@ -2415,3 +2415,41 @@ conserva por los hallazgos de la base.
 - A pedido, commit + push a `origin/main` de todo lo pendiente, en 4 commits:
   foto de cierre (29-oct), autoarranque (28-oct), reporte de conectividad
   (hoy) y docs. Suite: 209 OK. `.env`, `.pem` y `data/` siguen gitignored.
+
+### 4º pedido: subir SOLO el bot a una EC2 (24/7), aislado del resto
+- `deploy/bot/` nuevo (guía en `deploy/bot/README.md`):
+  - `empaquetar.py`: lista cerrada de 27 archivos (bot, `scripts/avisos.py`,
+    12 módulos de `src/`, sus pruebas y los de instalación) → `dist/zeia-bot-<commit>.tar.gz`
+    en LF; rechaza `.env`/`.pem`/`.pdf`/`.sqlite`. `--env` arma `dist/bot.env`
+    desde `.env` con solo las variables del bot (sin OpenRouter/ElevenLabs) y
+    host/puerto/túnel siempre del ejemplo (en el servidor, por túnel).
+  - `requirements-bot.txt`: 6 librerías fijas (sin openai ni fastapi).
+  - `instalar.sh` (Ubuntu): usuario `zeiabot` sin shell, `/opt/zeia-bot`,
+    venv, Chromium en `/opt/zeia-bot/browsers`, fuentes. Prueba el código nuevo
+    ANTES de instalarlo, guarda el anterior en `/opt/zeia-bot/anterior` y lo
+    restaura si la verificación falla. No toca `.env`, llaves ni `data/`. La
+    primera vez NO enciende ni habilita el bot (evitar 2 bots con la laptop).
+  - `zeia-bot.service`: `Restart=always`, `MemoryMax=1536M`, `ProtectSystem=strict`
+    (solo escribe `app/data` y su HOME), `ProtectHome`, `NoNewPrivileges`,
+    `PrivateTmp`. Sin `PrivateDevices` ni `MemoryDenyWriteExecute` (Chromium).
+  - `verificar.py`: `.env` y llaves (600), `data/` escribible, las 2 bases por
+    túnel (última lectura, solo lectura), `getMe` de Telegram, foto de prueba
+    con Chromium. `instalar.sh` lo corre en `zeia-bot-verificar.service`, generada
+    del servicio con `sed`: mismo aislamiento que el bot.
+- `src/config.py`: `OPENROUTER_API_KEY` pasa a opcional (antes `os.environ[...]`
+  tumbaba al bot sin ella). Sin clave, el chat sigue fallando claro al crear el
+  agente (`OpenAIError: The api_key client option must be set`).
+- `scripts/autoarranque.vbs`: si existe `data\bot_en_servidor.txt` no lanza el
+  bot (la webapp sí).
+- `.gitignore` + `dist/`; `.gitattributes`: `.sh` y `.service` de deploy en LF.
+- Pruebas: `tests/test_deploy_bot.py` (6: la lista trae todo lo que el bot
+  importa —recorre los imports con `ast`—, nada del chat/webapp/secretos, LF,
+  `.env` filtrado). Suite 215 OK.
+- Probado el paquete solo en `$env:TEMP\zeia_bot_limpio`: Python 3.12.10 (el
+  de Ubuntu 24.04) con solo las 6 librerías → 151 pruebas OK; `verificar.py`
+  conectó a las 2 bases (reutilizando los túneles de la laptop), `getMe` OK y
+  Chromium dibujó la foto (el único error, a propósito: sin `.env`). `bash -n
+  instalar.sh` OK. **No probado**: `instalar.sh` y el aislamiento de systemd en
+  un Ubuntu real (no hay Linux aquí): revisar el primer arranque en la EC2.
+- Ambiental volvió el 02-nov 12:20; del 30-oct al 01-nov no se recuperó nada
+  (el reporte de la semana sigue valiendo).

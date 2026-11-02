@@ -78,8 +78,10 @@ def get_db_config(base: str) -> DBConfig:
         raise ValueError(f"Base desconocida: {base!r}. Usa una de {list(DBS)}.")
 
 
-# OpenRouter
-OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+# OpenRouter (solo el chat: agent.py, webapp, cli, eval). Opcional para que el
+# bot de Telegram arranque sin ella; si falta, OpenAI(api_key=None) falla al
+# crear el agente con un error claro.
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or None
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Backward-compat: variables genéricas = ENERGÍA (comportamiento histórico)

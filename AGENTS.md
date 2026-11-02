@@ -123,6 +123,14 @@ scripts/
                         Windows); no duplica si ya corren. Lo registra
                         instalar_autoarranque.cmd/.ps1 (sin administrador)
 tests/                  unittest sin DB (python -m unittest discover -s tests)
+deploy/bot/             ★ Bot de Telegram SOLO en una EC2 Ubuntu 24/7 (ver README):
+                        empaquetar.py (lista cerrada de archivos → dist/*.tar.gz;
+                        --env arma dist/bot.env solo con variables del bot),
+                        instalar.sh (usuario zeiabot, /opt/zeia-bot, systemd
+                        aislado, prueba antes y vuelve atrás si falla),
+                        verificar.py (bases, Telegram y Chromium sin mandar nada).
+                        Con data\bot_en_servidor.txt el autoarranque de la laptop
+                        ya no lanza el bot (solo la webapp)
 eval/
   questions.yaml        Preguntas de prueba con hechos esperados
   questions_carga.yaml  Prueba de carga: 3 meses × 2 puntos/tableros
