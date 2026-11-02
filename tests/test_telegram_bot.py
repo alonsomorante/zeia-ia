@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -123,6 +124,40 @@ class Responder(unittest.TestCase):
             bot.responder("ambiental", 77)
         msg.assert_called_once_with("No pude armar la foto de /ambiental: túnel caído",
                                     reply_to=77)
+
+
+class FotoDeCierre(unittest.TestCase):
+    DIA = date(2026, 10, 27)
+
+    def setUp(self):
+        p = mock.patch.object(bot, "log")
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_manda_el_dia_completo_sin_sonido(self):
+        foto = mock.Mock(png=b"PNG", caption="⚡ Energía · cierre", filas=[1, 2], problemas=[1])
+        with mock.patch("src.foto_salas.foto_peores", return_value=foto) as peores, \
+             mock.patch.object(bot.telegram, "send_photo") as foto_tg:
+            bot.enviar_cierre("energia", self.DIA)
+        peores.assert_called_once_with("energia", dia=self.DIA)
+        foto_tg.assert_called_once_with(b"PNG", "⚡ Energía · cierre", silent=True,
+                                        filename="cierre_energia_2026-10-27.png")
+
+    def test_sin_problemas_manda_solo_el_texto(self):
+        foto = mock.Mock(png=None, caption="✅ Todo bien", filas=[1], problemas=[])
+        with mock.patch("src.foto_salas.foto_peores", return_value=foto), \
+             mock.patch.object(bot.telegram, "send_message") as msg, \
+             mock.patch.object(bot.telegram, "send_photo") as foto_tg:
+            bot.enviar_cierre("agua", self.DIA)
+        msg.assert_called_once_with("✅ Todo bien", silent=True)
+        foto_tg.assert_not_called()
+
+    def test_si_falla_lanza_para_que_se_reintente(self):
+        with mock.patch("src.foto_salas.foto_peores", side_effect=RuntimeError("túnel caído")), \
+             mock.patch.object(bot.telegram, "send_message") as msg:
+            with self.assertRaises(RuntimeError):
+                bot.enviar_cierre("ambiental", self.DIA)
+        msg.assert_not_called()
 
 
 if __name__ == "__main__":

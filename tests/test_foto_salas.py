@@ -1,4 +1,4 @@
-"""Pruebas de la foto de lo peor de hoy (sin base de datos ni navegador).
+"""Pruebas de la foto de lo peor de hoy y de un día cerrado (sin base ni navegador).
 
     python -m unittest tests.test_foto_salas -v
 """
@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 import sys
 import unittest
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -22,6 +22,10 @@ N = 900
 FUENTE = {"dia": DIA, "min_actual": N, "congelada": False,
           "max_global": REF.isoformat(), "ref": REF.isoformat()}
 GENERADO = datetime(2026, 10, 19, 15, 0, tzinfo=LIMA)
+CIERRE = datetime(2026, 10, 20, tzinfo=LIMA)          # 24:00 del lunes 19
+FUENTE_CIERRE = {"dia": DIA, "min_actual": 1440, "congelada": False, "cerrado": True,
+                 "max_global": (CIERRE + timedelta(minutes=9)).isoformat(),
+                 "ref": CIERRE.isoformat()}
 
 
 def cada(paso: int, desde: int = 0, hasta: int = N, menos=()) -> set:
@@ -48,6 +52,14 @@ def fila(nombre, estado="ok", falta=None, antig=1.0, ultima=None, tienda="Oechsl
 
 def con_corte(ini=459, largo=10):
     return [0] * ini + [1] * largo + [0] * (N - ini - largo)
+
+
+def fila_cierre(nombre, estado="ok", falta=None, ultima=None):
+    """Fila de un día cerrado (1,440 min, medida hasta las 24:00)."""
+    ultima = ultima or (CIERRE - timedelta(minutes=1))
+    return fs.Fila(nombre, "Oechsle Salaverry · Tablero", "Oechsle Salaverry", estado,
+                   (CIERRE - ultima).total_seconds() / 60, ultima,
+                   falta if falta is not None else [0] * 1440)
 
 
 class MinutoAMinuto(unittest.TestCase):
@@ -233,7 +245,7 @@ class Imagen(unittest.TestCase):
 
 class TodoJunto(unittest.TestCase):
     def cargar(self, unidades):
-        return mock.patch.dict(fs._CARGAR, {"energia": lambda: (FUENTE, REF, N, unidades)})
+        return mock.patch.dict(fs._CARGAR, {"energia": lambda dia=None: (FUENTE, REF, N, unidades)})
 
     def test_sin_problemas_no_arma_imagen(self):
         with self.cargar([unidad(1, cada(1, hasta=900), 1)]), \
@@ -256,6 +268,123 @@ class TodoJunto(unittest.TestCase):
     def test_modulo_desconocido(self):
         with self.assertRaises(ValueError):
             fs.foto_peores("gas")
+
+    def test_foto_de_un_dia_cerrado(self):
+        us = [unidad(1, cada(1, hasta=1440), 1),
+              unidad(2, cada(1, hasta=1080), 1, nombre="Chiller 1")]     # se cortó a las 17:59
+        pedidos = []
+
+        def cargar(dia=None):
+            pedidos.append(dia)
+            return FUENTE_CIERRE, CIERRE, 1440, us
+
+        with mock.patch.dict(fs._CARGAR, {"energia": cargar}), \
+             mock.patch.object(fs, "png_de_html", return_value=b"PNG") as png:
+            foto = fs.foto_peores("energia", dia=date(2026, 10, 19))
+        self.assertEqual(pedidos, [date(2026, 10, 19)])
+        self.assertEqual([(f.nombre, f.estado) for f in foto.problemas], [("Chiller 1", "caido")])
+        self.assertEqual(foto.caption, "⚡ Energía · cierre del lunes 19 oct\n"
+                                       "1 de 2 equipos con problemas · ✅ 1 bien")
+        self.assertIn("Cierre del lunes 19 oct", png.call_args[0][0])
+
+
+class DiaCerrado(unittest.TestCase):
+    def test_ventana_del_dia_completo(self):
+        maxg = CIERRE + timedelta(minutes=9)
+        fuente, ref, n, ini, fin = fs._dia_cerrado(date(2026, 10, 19), maxg,
+                                                   ahora=CIERRE + timedelta(minutes=10))
+        self.assertEqual((n, ref, ini, fin), (1440, CIERRE, a_las(0), CIERRE))
+        self.assertEqual((fuente["dia"], fuente["cerrado"], fuente["congelada"]),
+                         (DIA, True, False))
+
+    def test_si_la_base_dejo_de_recibir_datos_se_mide_hasta_ahi(self):
+        maxg = a_las(21 * 60 + 30) + timedelta(seconds=40)
+        fuente, ref, n, _, _ = fs._dia_cerrado(date(2026, 10, 19), maxg,
+                                               ahora=CIERRE + timedelta(hours=8))
+        self.assertEqual((fuente["congelada"], ref, n), (True, maxg, 1290))
+        txt = fs.caption("energia", [fila_cierre("A", falta=[0] * 1290)], fuente)
+        self.assertIn("⚠️ La base no recibe datos desde las 21:30: el día se muestra hasta "
+                      "esa hora.", txt)
+        h = fs.html_foto("energia", [fila_cierre("A", falta=[0] * 1200 + [1] * 90)], fuente,
+                         CIERRE + timedelta(hours=8))
+        self.assertIn("de 00:00 a 21:30", h)
+        self.assertIn("La base ya no recibía datos", h)
+
+    def test_dia_que_no_termino_o_sin_datos(self):
+        with self.assertRaises(ValueError):
+            fs._dia_cerrado(date(2026, 10, 19), CIERRE, ahora=CIERRE - timedelta(minutes=1))
+        with self.assertRaises(RuntimeError) as ctx:
+            fs._dia_cerrado(date(2026, 10, 19), datetime(2026, 10, 12, 10, 15, tzinfo=LIMA),
+                            ahora=CIERRE + timedelta(days=1))
+        self.assertIn("no tiene datos del lunes 19 oct (su última lectura es el 12-oct 10:15)",
+                      str(ctx.exception))
+
+    def test_al_cierre_un_atraso_es_un_corte_mas(self):
+        # última lectura 23:50: en vivo sería "con atraso"; al cierre, un corte de 9 min
+        [f] = fs.armar_filas("energia", [unidad(1, cada(1, hasta=1431), 1)], 1440, CIERRE,
+                             cerrado=True)
+        self.assertEqual((f.estado, f.gravedad, f.cortes), ("ok", 2, [(1431, 9)]))
+        self.assertEqual(fs.detalle(f, DIA, 1440), "1 corte: 23:51–24:00 (9 min)")
+        [g] = fs.armar_filas("energia", [unidad(1, cada(1, hasta=1431), 1)], 1440, CIERRE)
+        self.assertEqual(g.estado, "atrasado")
+
+    def test_al_cierre_sin_datos_dice_como_termino_el_dia(self):
+        [f] = fs.armar_filas("ambiental", [unidad(1, cada(5, hasta=18 * 60 + 1), 5)], 1440,
+                             CIERRE, cerrado=True)
+        self.assertEqual((f.nombre, f.estado), ("Zona Roja", "caido"))
+        self.assertEqual(fs.detalle(f, DIA, 1440), "sin datos de 18:00 a 24:00 (6 h)")
+        u = unidad(2, set(), 1, ultima=datetime(2026, 10, 17, 10, 15, tzinfo=LIMA))
+        [g] = fs.armar_filas("energia", [u], 1440, CIERRE, cerrado=True)
+        self.assertEqual(fs.detalle(g, DIA, 1440),
+                         "sin datos en todo el día (desde el 17-oct 10:15)")
+
+    def test_texto_del_cierre(self):
+        self.assertEqual(fs.caption("energia", [fila_cierre("A"), fila_cierre("B")], FUENTE_CIERRE),
+                         "⚡ Energía · cierre del lunes 19 oct\n"
+                         "✅ Todo bien: los 2 equipos enviaron datos sin cortes en todo el día.")
+        caido = fila_cierre("Caido", estado="caido", ultima=a_las(18 * 60),
+                            falta=[0] * 1081 + [1] * 359)
+        filas = fs.ordenar([fila_cierre("A"), caido])
+        self.assertEqual(fs.caption("energia", filas, FUENTE_CIERRE, max_filas=0).splitlines()[1:], [
+            "1 de 2 equipos con problemas · ✅ 1 bien",
+            "⚠️ No entran en la imagen (1):",
+            "🔴 Caido (Oechsle Salaverry): sin datos de 18:00 a 24:00 (6 h)",
+        ])
+
+    def test_imagen_del_cierre(self):
+        caido = fila_cierre("Caido", estado="caido", ultima=a_las(18 * 60),
+                            falta=[0] * 1081 + [1] * 359)
+        cortes = fila_cierre("Con corte", falta=[0] * 600 + [1] * 30 + [0] * 810)
+        filas = fs.ordenar([caido, cortes, fila_cierre("Bien")])
+        h = fs.html_foto("energia", filas, FUENTE_CIERRE, CIERRE + timedelta(minutes=10))
+        self.assertIn("Cierre del lunes 19 oct · de 00:00 a 24:00 (hora Lima)", h)
+        self.assertIn("1 sin datos al cierre", h)
+        self.assertIn("1 con cortes<", h)
+        self.assertIn("Sin datos de 18:00 a 24:00 (6 h)", h)
+        self.assertNotIn('class="futuro"', h)          # día completo: nada en gris
+        self.assertNotIn("Todavía no pasa", h)
+        self.assertIn("generado el 20-oct 00:10", h)
+
+    def test_cargar_un_dia_cerrado_con_el_inventario_de_hoy(self):
+        def u(uid, nombre, activo=True):
+            return {"uid": uid, "tienda": "Oechsle Salaverry", "grupo": "TG", "nombre": nombre,
+                    "activo": activo, "cadencia_min": 1}
+
+        est = {"fuente": {"max_global": (CIERRE + timedelta(hours=9)).isoformat()},
+               "unidades": [u(1, "Reportó ese día"), u(2, "Mudo ese día, no antes"),
+                            u(3, "Nada en 30 días"), u(4, "Inactivo", activo=False)]}
+        lecturas = {"rows": [{"uid": 1, "dia": DIA, "hora": m // 60, "minuto": m % 60, "n": 1}
+                             for m in range(1440)]}
+        previa = datetime(2026, 10, 18, 22, 0, tzinfo=LIMA)
+        with mock.patch.object(fs.monitor, "lecturas", return_value=lecturas) as lect, \
+             mock.patch.object(fs, "ultimas_lecturas", return_value={2: previa}) as ult:
+            fuente, ref, n, us = fs._cargar_monitor_cerrado("energia", est, date(2026, 10, 19))
+        self.assertEqual(lect.call_args[0], ("energia", [1, 2, 3, 4], DIA, DIA))
+        self.assertEqual(ult.call_args[0][:3], ("energia", [2, 3], CIERRE))   # solo lo activo
+        self.assertEqual(ult.call_args[1], {"fin": CIERRE})
+        self.assertEqual([(x.uid, len(x.presentes), x.ultima) for x in us],
+                         [(1, 1440, a_las(1439)), (2, 0, previa)])
+        self.assertEqual((fuente["cerrado"], ref, n), (True, CIERRE, 1440))
 
 
 if __name__ == "__main__":

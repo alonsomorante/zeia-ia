@@ -135,3 +135,9 @@ if AVISOS_MODO not in ("apagado", "simular", "enviar"):
 AVISOS_HORARIO = os.getenv("AVISOS_HORARIO", "08:00-20:00").strip()   # 🟠 solo en este horario
 AVISOS_RESUMEN = os.getenv("AVISOS_RESUMEN", "08:00").strip()         # hora del resumen 🟡
 AVISOS_CICLO_MIN = _int_env("AVISOS_CICLO_MIN", 5)                    # cada cuánto se revisa
+
+# Foto de cierre del día (src/foto_cierre.py; la manda el bot de Telegram): a
+# esta hora (Lima) manda, sin sonido, las fotos de /ambiental, /energia y /agua
+# del día ANTERIOR completo (00:00–24:00). "apagado" la desactiva. No depende
+# de AVISOS_MODO: es la misma foto de los comandos, solo que llega sola.
+FOTO_CIERRE = os.getenv("FOTO_CIERRE", "00:10").strip()

@@ -13,6 +13,10 @@ empresas juntas y de peor a mejor (src/foto_salas.py):
     /mantenimiento <qué> [duración]   pausa los avisos de algo (fin = terminar)
     /ayuda       lista de comandos
 
+Foto de cierre (src/foto_cierre.py): a la hora FOTO_CIERRE (00:10 por
+defecto) manda sola, sin sonido, la foto de cada módulo del día anterior
+completo (00:00 a 24:00); si el bot estaba apagado, apenas vuelve.
+
 Además corre los avisos automáticos (src/avisos_vivo.py) en un hilo, según
 AVISOS_MODO en .env: simular (por defecto: no envía nada), enviar o apagado.
 
@@ -23,13 +27,13 @@ from __future__ import annotations
 import socket
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import config, telegram, tunnel  # noqa: E402
+from src import config, foto_cierre, telegram, tunnel  # noqa: E402
 
 # La consola de Windows puede no soportar emojis: que nunca rompa la salida.
 if hasattr(sys.stdout, "reconfigure"):
@@ -46,14 +50,19 @@ ALIAS = {"ambiental": "ambiental", "energia": "energia", "agua": "agua",
          "salas": "ambiental",                     # el comando de la 1a versión
          "avisos": "avisos", "mantenimiento": "mantenimiento", "mant": "mantenimiento",
          "ayuda": "ayuda", "help": "ayuda", "start": "ayuda"}
+_HORA_CIERRE = foto_cierre.hora_de(config.FOTO_CIERRE)
+_CIERRE_TXT = ("" if _HORA_CIERRE is None else
+               f"Cierre del día: a las {foto_cierre.texto_hora(_HORA_CIERRE)} llegan solas, sin "
+               "sonido, las mismas fotos del día anterior completo (00:00 a 24:00).\n")
 AYUDA = ("Soy el bot de avisos de ZEIA. Cada comando manda una foto con SOLO lo que "
          "tuvo problemas hoy, de todas las empresas, de peor a mejor:\n"
          "/ambiental: salas (CO2, temperatura, humedad)\n"
          "/energia: equipos de energía\n"
          "/agua: medidores de agua\n"
          "En la barra del día: verde = llegaron lecturas, ámbar = hubo cortes, "
-         "rojo = no llegó nada. Si todo va bien, responde solo con un mensaje.\n\n"
-         "Avisos automáticos: 🔴 al instante (gateway o plataforma caída), 🟠 en horario "
+         "rojo = no llegó nada. Si todo va bien, responde solo con un mensaje.\n"
+         + _CIERRE_TXT +
+         "\nAvisos automáticos: 🔴 al instante (gateway o plataforma caída), 🟠 en horario "
          "laboral (equipo o sala sin datos, batería, no mide) y un resumen 🟡 cada mañana.\n"
          "/avisos: qué está abierto y los últimos avisos\n"
          "/mantenimiento Sanna 2h: no avisar de algo mientras se trabaja en sitio "
@@ -145,6 +154,24 @@ def responder(accion: str, msg_id: Optional[int], args: str = "", por: str = "")
         f"({len(foto.problemas)} con problemas de {len(foto.filas)})")
 
 
+def enviar_cierre(modulo: str, dia: date) -> None:
+    """Foto de cierre: el día completo que terminó, sin sonido (la pide foto_cierre)."""
+    from src.foto_salas import foto_peores   # import tardío: Playwright pesa
+    t0 = time.time()
+    foto = foto_peores(modulo, dia=dia)
+    if foto.png is None:
+        telegram.send_message(foto.caption, silent=True)
+    else:
+        telegram.send_photo(foto.png, foto.caption, silent=True,
+                            filename=f"cierre_{modulo}_{dia.isoformat()}.png")
+    log(f"Cierre del {dia.isoformat()}: /{modulo} enviado en {time.time() - t0:.1f} s "
+        f"({len(foto.problemas)} con problemas de {len(foto.filas)})")
+
+
+def avisar_grupo(texto: str) -> None:
+    telegram.send_message(texto, silent=True)
+
+
 def _candado() -> Optional[socket.socket]:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -178,8 +205,11 @@ def main() -> int:
         parar = avisos_vivo.iniciar(log)
         if parar is None:
             log("Avisos automáticos apagados (AVISOS_MODO=apagado)")
+        cierre = foto_cierre.Cierre(enviar_cierre, avisar_grupo, log=log)
+        log(cierre.descripcion())
         offset, espera = None, 5
         while True:
+            cierre.revisar()     # a su hora (o al volver el bot) manda el día que terminó
             try:
                 updates = telegram.get_updates(offset=offset, timeout=POLL_S,
                                                allowed_updates=["message"])
