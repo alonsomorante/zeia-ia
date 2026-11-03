@@ -1,0 +1,1965 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTIPO · Dashboard del cliente · ZEIA</title>
+<!--
+  PROTOTIPO DESECHABLE: no es la página de producción.
+  Pregunta: ¿cómo debería verse el dashboard que usará el cliente?
+  Tres variantes en esta misma página: ?variant=A (Tablero) | B (Informe vivo) | C (Explorador)
+  Los datos reales los inyecta scripts/prototype_dashboard.py (salida en analisis/, gitignored).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Martian+Mono:wdth,wght@87.5..112.5,300..700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..800&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wdth,wght@75..100,400..700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:wght@300..800&family=Chivo+Mono:wght@300..700&display=swap">
+<style>
+/* ================= Base compartida ================= */
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;min-height:100vh;-webkit-font-smoothing:antialiased;padding-bottom:84px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed}
+h1,h2,h3,h4,p{margin:0}
+.sr{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.saltar{position:absolute;left:-9999px;top:8px;z-index:100;padding:8px 12px;background:#000;color:#fff;border-radius:6px}
+.saltar:focus{left:8px}
+.num{font-variant-numeric:tabular-nums lining-nums}
+.chart{width:100%;height:260px}
+.chart.alto{height:330px}
+.chart.bajo{height:190px}
+svg.ico{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+:focus-visible{outline:2px solid var(--foco,#2563eb);outline-offset:2px}
+.vacio{max-width:620px;margin:12vh auto;padding:0 24px;font-family:system-ui,sans-serif;line-height:1.5}
+.vacio pre{background:#111;color:#eee;padding:12px 14px;border-radius:8px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+
+/* Delta (variación vs periodo anterior): más consumo = rojo, menos = verde */
+.delta{display:inline-flex;align-items:center;gap:4px;font-weight:600;font-size:11.5px;line-height:1;padding:4px 7px;border-radius:6px;white-space:nowrap}
+.delta.malo{color:var(--malo);background:var(--malo-bg)}
+.delta.bueno{color:var(--bueno);background:var(--bueno-bg)}
+.delta.neutro{color:var(--mut);background:var(--neutro-bg)}
+
+/* Notas de calidad */
+.notas{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px 14px}
+.notas li{font-size:11.5px;line-height:1.4;color:var(--mut);display:flex;gap:6px;align-items:baseline}
+.notas li::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.55;flex:none;transform:translateY(-1px)}
+.notas li.alerta{color:var(--alerta)}
+
+/* Chips de preguntas */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:7px 11px;font-size:12.5px;line-height:1.2;text-align:left}
+.chip:hover{border-color:var(--ink)}
+
+/* Mensajes del chat (los tres diseños los usan con sus variables) */
+.msg{max-width:100%;font-size:13.5px;line-height:1.5}
+.msg.yo{align-self:flex-end;max-width:85%;background:var(--ink);color:var(--card);padding:9px 12px;border-radius:14px 14px 4px 14px}
+.msg.ia{align-self:stretch;background:var(--card);border:1px solid var(--line);border-radius:4px 14px 14px 14px;padding:12px}
+.msg-estado{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:12.5px}
+.msg-estado::before{content:"";width:12px;height:12px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--acc);animation:gira .8s linear infinite}
+@keyframes gira{to{transform:rotate(360deg)}}
+.msg h4{font-size:13.5px;margin-bottom:4px}
+.msg-texto{margin-top:6px}
+.msg-texto.entra{animation:entra .45s ease both}
+@keyframes entra{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.msg .chart{height:190px;margin-top:6px}
+.fijar{display:inline-flex;align-items:center;gap:6px;margin-top:10px;border:1px solid var(--acc);color:var(--acc);background:transparent;border-radius:8px;padding:6px 10px;font-weight:600;font-size:12.5px}
+.fijar:hover{background:var(--acc-soft)}
+.fijar:disabled{border-color:var(--line);color:var(--mut);background:transparent}
+
+/* Barra flotante del PROTOTIPO (no es parte del diseño) */
+#proto{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:4px;padding:5px;background:#111214;color:#f4f4f5;border:1px solid rgba(255,255,255,.2);border-radius:999px;box-shadow:0 12px 32px rgba(0,0,0,.35),0 2px 6px rgba(0,0,0,.25);font:500 12.5px/1 ui-monospace,'Martian Mono',monospace;white-space:nowrap;max-width:calc(100vw - 16px)}
+#proto .tag{padding:7px 10px;border-radius:999px;background:#fde047;color:#111;font-weight:700;letter-spacing:.08em;font-size:10.5px}
+#proto button{border:0;background:transparent;color:inherit;height:32px;min-width:32px;border-radius:999px;padding:0 11px}
+#proto button:hover{background:rgba(255,255,255,.12)}
+#proto button[aria-pressed="true"]{background:#f4f4f5;color:#111}
+#proto .var{min-width:168px;text-align:center}
+#proto .sep{width:1px;height:20px;background:rgba(255,255,255,.22);margin:0 3px}
+#proto .nota{opacity:.72;font-size:11px;padding:0 10px 0 4px}
+#proto :focus-visible{outline:2px solid #fde047;outline-offset:1px}
+@media (max-width:900px){#proto .nota{display:none}#proto .var{min-width:120px}}
+
+/* ================= A · TABLERO (papel técnico, claro) ================= */
+body.v-A{--bg:#f1eee6;--card:#fbfaf7;--line:#d9d2c3;--grid:#e6e0d3;--ink:#1c1b18;--mut:#625e55;--acc:#c2410c;--acc-soft:rgba(194,65,12,.1);--prev:#9e978a;--bueno:#256d43;--malo:#b42318;--alerta:#8a4b00;--malo-bg:#fae4e1;--bueno-bg:#e0f0e5;--neutro-bg:#ebe7de;--foco:#c2410c;
+  background:var(--bg);color:var(--ink);font-family:'Archivo',system-ui,sans-serif}
+body.v-A::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.6;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:28px 28px}
+.a-shell{position:relative;z-index:1;min-height:100vh}
+.a-shell.con-chat{padding-right:384px}
+.a-col{min-width:0}
+.a-top{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:18px;padding:10px 26px;background:rgba(251,250,247,.94);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+.a-marca{display:flex;align-items:center;gap:10px}
+.a-logo{width:32px;height:32px;display:grid;place-items:center;background:var(--ink);color:var(--card);font-weight:800;font-stretch:125%;font-size:16px;border-radius:7px}
+.a-marca b{display:block;font-weight:800;font-stretch:125%;letter-spacing:.05em;font-size:14.5px}
+.a-marca small{display:block;color:var(--mut);font-size:11px;margin-top:2px}
+.a-cli{padding-left:18px;border-left:1px solid var(--line)}
+.a-cli small,.a-et{display:block;font-family:'Martian Mono',monospace;font-size:10px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+.a-cli b{display:block;font-size:15px;font-weight:650;margin-top:3px}
+.a-mod{display:flex;gap:2px;margin-left:6px}
+.a-mod button{display:flex;align-items:center;gap:6px;border:0;background:transparent;padding:7px 10px;border-radius:8px;font-size:13px;color:var(--mut)}
+.a-mod button[aria-current="page"]{background:var(--ink);color:var(--card)}
+.a-mod button:disabled{opacity:.8}
+.a-mod i{font-style:normal;font-family:'Martian Mono',monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;border:1px solid var(--line);border-radius:4px;padding:2px 4px}
+.a-vivo{margin-left:auto;display:flex;align-items:center;gap:8px;font-family:'Martian Mono',monospace;font-size:10.5px;color:var(--mut)}
+.pulso{width:8px;height:8px;border-radius:50%;background:#2c9a5a;animation:pulso 2.2s infinite;flex:none}
+@keyframes pulso{0%{box-shadow:0 0 0 0 rgba(44,154,90,.55)}70%{box-shadow:0 0 0 7px rgba(44,154,90,0)}100%{box-shadow:0 0 0 0 rgba(44,154,90,0)}}
+.a-btn-chat{display:flex;align-items:center;gap:8px;border:1px solid var(--ink);background:var(--ink);color:var(--card);padding:9px 14px;border-radius:9px;font-weight:600;font-size:13px}
+.a-btn-chat[aria-expanded="true"]{background:var(--card);color:var(--ink)}
+.a-main{padding:22px 26px 36px;min-width:0}
+.a-titulo{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.a-titulo h1{font-size:30px;line-height:1.05;font-weight:750;font-stretch:115%;letter-spacing:-.01em}
+.a-titulo p{color:var(--mut);font-size:13px;margin-top:6px}
+.a-filtros{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px}
+.seg{display:inline-flex;padding:3px;background:var(--card);border:1px solid var(--line);border-radius:10px}
+.seg button{border:0;background:transparent;padding:7px 12px;border-radius:7px;font-size:13px;color:var(--mut)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--card);font-weight:600}
+.a-check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mut);cursor:pointer}
+.a-check input{width:16px;height:16px;accent-color:var(--ink)}
+.a-ver{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mut)}
+.a-ver select{padding:7px 10px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);max-width:280px}
+.a-migas{display:flex;flex-wrap:wrap;gap:2px 6px;align-items:center;font-size:12.5px;color:var(--mut)}
+.a-migas button{border:0;background:transparent;color:var(--acc);text-decoration:underline;text-underline-offset:3px;padding:2px}
+.a-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:18px 0 10px}
+.a-kpi{position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:15px 16px 14px;min-width:0;animation:sube .5s ease both}
+.a-kpi:nth-child(2){animation-delay:.05s}.a-kpi:nth-child(3){animation-delay:.1s}.a-kpi:nth-child(4){animation-delay:.15s}
+@keyframes sube{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.a-kpi-val{margin:12px 0 8px;font-family:'Martian Mono',monospace;font-weight:600;font-size:31px;line-height:1;letter-spacing:-.03em;white-space:nowrap}
+.a-kpi-val span{font-family:'Archivo',sans-serif;font-weight:500;font-size:14px;color:var(--mut);margin-left:5px;letter-spacing:0}
+.a-kpi-fila{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--mut)}
+.a-kpi-exp{margin-top:10px;font-size:12.5px;line-height:1.45;color:var(--mut)}
+.a-kpi .spark{position:absolute;right:14px;top:14px}
+.a-notas-glob{margin:0 2px 16px}
+.a-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
+.a-w{grid-column:span var(--span,6);background:var(--card);border:1px solid var(--line);border-radius:14px;display:flex;flex-direction:column;min-width:0;scroll-margin-top:80px}
+.a-w.nuevo{animation:aparece 1.2s ease}
+@keyframes aparece{0%{box-shadow:0 0 0 3px var(--acc);transform:translateY(8px)}100%{box-shadow:0 0 0 0 transparent;transform:none}}
+.a-w-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:14px 14px 0 16px}
+.a-w-h h3{font-size:15px;font-weight:650;line-height:1.25}
+.a-w-h p{margin-top:3px;font-size:12px;color:var(--mut)}
+.a-pin-tag{display:inline-flex;align-items:center;gap:4px;margin-left:6px;font-family:'Martian Mono',monospace;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--acc);border:1px solid var(--acc);border-radius:4px;padding:2px 5px;vertical-align:2px}
+.a-w-acc{display:flex;gap:2px;flex:none}
+.a-ico{width:30px;height:30px;display:grid;place-items:center;border:1px solid transparent;background:transparent;border-radius:8px;color:var(--mut)}
+.a-ico:hover,.a-ico[aria-expanded="true"]{border-color:var(--line);color:var(--ink);background:#f3f0e9}
+.a-w-edit{display:flex;flex-wrap:wrap;gap:12px;margin:10px 14px 0 16px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px;background:#f5f2eb}
+.a-w-edit label{display:flex;flex-direction:column;gap:5px;font-family:'Martian Mono',monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+.a-w-edit select{font-family:'Archivo',sans-serif;font-size:13px;text-transform:none;letter-spacing:0;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--ink)}
+.a-w-b{padding:6px 10px 0;flex:1;min-width:0}
+.a-w-pie{padding:8px 16px 14px}
+.a-rep{display:grid;grid-template-columns:minmax(0,1fr);gap:4px}
+.a-ley{list-style:none;margin:0;padding:0 6px 4px;display:grid;gap:2px}
+.a-ley button{display:grid;grid-template-columns:10px minmax(0,1fr) auto 44px;gap:8px;align-items:center;width:100%;border:0;background:transparent;padding:5px 6px;border-radius:7px;text-align:left;font-size:12.5px}
+.a-ley button:not(:disabled):hover{background:#f1ede5}
+.a-ley button:disabled{cursor:default;color:var(--ink)}
+.a-ley i{width:10px;height:10px;border-radius:3px}
+.a-ley .v{font-family:'Martian Mono',monospace;font-size:11.5px}
+.a-ley .p{font-family:'Martian Mono',monospace;font-size:11px;color:var(--mut);text-align:right}
+.a-ley span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a-chat{position:fixed;top:0;right:0;bottom:0;width:384px;display:flex;flex-direction:column;background:var(--card);border-left:1px solid var(--line);z-index:6;animation:desliza .25s ease}
+@keyframes desliza{from{transform:translateX(16px);opacity:0}to{transform:none;opacity:1}}
+.a-chat-h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:16px 16px 12px;border-bottom:1px solid var(--line)}
+.a-chat-h h2{font-size:17px;font-weight:700;font-stretch:112%}
+.a-chat-h p{font-size:12px;color:var(--mut);margin-top:3px}
+.a-chat-log{flex:1;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:14px 16px}
+.a-chat-intro{font-size:13px;line-height:1.5;color:var(--mut)}
+.a-chat-pie{border-top:1px solid var(--line);padding:12px 16px 16px;display:grid;gap:10px;background:#f7f5ef}
+.a-chat-pie form{display:flex;gap:6px}
+.a-chat-pie input{flex:1;min-width:0;border:1px solid var(--line);background:var(--card);border-radius:9px;padding:9px 11px;font-size:13.5px}
+.a-chat-pie button[type=submit]{border:0;background:var(--ink);color:var(--card);border-radius:9px;padding:0 14px;font-weight:600;font-size:13px}
+.a-chat-nota{font-size:11px;line-height:1.4;color:var(--mut)}
+@media (max-width:1180px){.a-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.a-w{grid-column:span 12}
+  .a-shell.con-chat{padding-right:0}.a-chat{width:min(400px,100%);box-shadow:-24px 0 48px rgba(0,0,0,.18)}
+  .a-mod i,.a-vivo span.largo{display:none}}
+@media (max-width:760px){.a-top{flex-wrap:wrap;padding:10px 14px}.a-main{padding:16px 14px}.a-kpis{grid-template-columns:1fr}.a-vivo{display:none}}
+
+/* ================= B · INFORME VIVO (editorial) ================= */
+body.v-B{--bg:#f6f0e6;--card:#fffdf8;--line:#ddd0bc;--grid:#ebe1d1;--ink:#211b15;--mut:#655a4d;--acc:#a8401a;--acc-soft:rgba(168,64,26,.1);--prev:#a3937e;--bueno:#2f6b4b;--malo:#a3301a;--alerta:#8a4b00;--malo-bg:#f6e0d8;--bueno-bg:#e2eee5;--neutro-bg:#ede5d8;--foco:#a8401a;
+  background:var(--bg);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif}
+.b-page{max-width:1200px;margin:0 auto;padding:26px 32px 40px;display:grid;grid-template-columns:210px minmax(0,1fr);column-gap:52px}
+.b-mast{grid-column:1/-1;display:flex;justify-content:space-between;align-items:center;gap:16px;border-bottom:2px solid var(--ink);padding-bottom:10px;font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase}
+.b-mast .vivo{display:flex;gap:8px;align-items:center;letter-spacing:.04em;text-transform:none;font-weight:500;color:var(--mut);font-size:12px}
+.b-head{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:44px;align-items:end;padding:28px 0 30px;border-bottom:1px solid var(--line);animation:entra .6s ease both}
+.b-head h1{font-family:'Fraunces',serif;font-weight:600;font-size:66px;line-height:.95;letter-spacing:-.03em;font-variation-settings:'opsz' 144}
+.b-head h2{margin-top:14px;font-family:'Fraunces',serif;font-style:italic;font-weight:400;font-size:23px;line-height:1.2;color:var(--mut)}
+.b-lede{font-family:'Fraunces',serif;font-size:19px;line-height:1.58;font-variation-settings:'opsz' 24}
+.b-lede strong{font-weight:650;color:var(--acc)}
+.b-rail{position:sticky;top:20px;align-self:start;padding-top:30px}
+.b-rail h2,.b-per h2{font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--mut);margin:0 0 8px 10px}
+.b-rail ol{list-style:none;margin:0 0 26px;padding:0;display:grid;gap:1px}
+.b-rail a{display:flex;gap:10px;padding:7px 10px;border-radius:8px;color:var(--mut);text-decoration:none;font-size:13.5px;line-height:1.3}
+.b-rail a:hover{background:#efe5d6;color:var(--ink)}
+.b-rail a b{font-family:'Fraunces',serif;font-weight:600;color:var(--acc);min-width:14px}
+.b-per{display:grid;gap:2px}
+.b-per button{text-align:left;border:0;background:transparent;padding:7px 10px;border-radius:8px;font-size:13.5px;color:var(--mut)}
+.b-per button[aria-pressed="true"]{background:var(--ink);color:var(--card);font-weight:600}
+.b-main{min-width:0}
+.b-sec{padding:34px 0;border-bottom:1px solid var(--line);display:grid;gap:16px;scroll-margin-top:16px}
+.b-kicker{font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--acc)}
+.b-sec h3{font-family:'Fraunces',serif;font-weight:600;font-size:33px;line-height:1.1;letter-spacing:-.018em;max-width:26ch;font-variation-settings:'opsz' 72}
+.b-cifra{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;font-family:'Fraunces',serif;font-weight:500;font-size:58px;line-height:1;letter-spacing:-.035em}
+.b-cifra small{font-family:'Instrument Sans',sans-serif;font-size:16px;font-weight:500;letter-spacing:0;color:var(--mut)}
+.b-fig{background:var(--card);border:1px solid var(--line);border-radius:3px;padding:14px 12px 8px}
+.b-cap{font-size:13px;line-height:1.5;color:var(--mut);margin:8px 4px 2px}
+.b-sug{display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;padding:15px 18px;background:#f0e2cd;border-left:3px solid var(--acc);font-size:15px;line-height:1.55}
+.b-sug b{font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);padding-top:4px}
+.b-dos{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+.b-lista{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.b-lista li{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:10px;align-items:baseline;font-size:14.5px;padding-bottom:8px;border-bottom:1px dotted var(--line)}
+.b-lista i{width:12px;height:12px;border-radius:2px;transform:translateY(1px)}
+.b-lista .v{font-variant-numeric:tabular-nums;font-weight:600}
+.b-lista .v small{font-weight:400;color:var(--mut);margin-left:6px}
+.b-calidad{list-style:none;margin:0;padding:0;display:grid;gap:10px;font-size:15px;line-height:1.5}
+.b-calidad li{padding-left:22px;position:relative}
+.b-calidad li::before{content:"✓";position:absolute;left:0;color:var(--bueno);font-weight:700}
+.b-calidad li.alerta::before{content:"!";color:var(--alerta);left:4px}
+.b-agregado{border-top:3px double var(--acc)}
+.b-agregado .b-quitar{justify-self:start;border:1px solid var(--line);background:transparent;border-radius:999px;padding:5px 12px;font-size:12.5px;color:var(--mut)}
+.b-preg{padding:36px 0 10px}
+.b-preg h3{font-family:'Fraunces',serif;font-weight:600;font-size:30px;margin-bottom:6px}
+.b-preg>p{color:var(--mut);font-size:14px;margin-bottom:14px}
+.b-preg form{display:flex;gap:8px;border:2px solid var(--ink);border-radius:999px;padding:5px 5px 5px 20px;background:var(--card)}
+.b-preg form:focus-within{box-shadow:0 0 0 4px var(--acc-soft)}
+.b-preg input{flex:1;min-width:0;border:0;background:transparent;font-family:'Fraunces',serif;font-size:18px;outline:none}
+.b-preg button[type=submit]{border:0;background:var(--ink);color:var(--card);border-radius:999px;padding:10px 18px;font-weight:600}
+.b-preg .chips{margin-top:12px}
+.b-log{display:flex;flex-direction:column;gap:12px;margin-top:18px}
+.b-log .msg.ia{border-radius:3px;padding:16px}
+.b-metodo{grid-column:1/-1;margin-top:26px;padding-top:14px;border-top:2px solid var(--ink);font-size:12.5px;line-height:1.55;color:var(--mut);columns:2;column-gap:40px}
+@media (max-width:1000px){.b-page{grid-template-columns:minmax(0,1fr);padding:20px 18px}.b-rail{position:static;padding-top:18px}.b-rail ol{display:none}
+  .b-per{grid-auto-flow:column;justify-content:start}.b-head{grid-template-columns:minmax(0,1fr);gap:18px}.b-head h1{font-size:46px}.b-dos{grid-template-columns:minmax(0,1fr)}.b-metodo{columns:1}}
+
+/* ================= C · EXPLORADOR (sala de control, oscuro) ================= */
+body.v-C{--bg:#0a0d12;--panel:#10151c;--panel2:#161d27;--card:#10151c;--line:#212b38;--ink:#e6edf3;--mut:#93a1af;--acc:#f5a524;--acc-soft:rgba(245,165,36,.15);--prev:#5b6b7d;--bueno:#4cc38a;--malo:#ff7a66;--alerta:#f5c451;--malo-bg:rgba(255,122,102,.14);--bueno-bg:rgba(76,195,138,.14);--neutro-bg:rgba(147,161,175,.14);--foco:#f5a524;
+  background:var(--bg);color:var(--ink);font-family:'Chivo',system-ui,sans-serif}
+.c-app{display:grid;grid-template-columns:330px minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);min-height:100vh}
+.c-top{grid-column:1/-1;position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:16px;padding:10px 18px;border-bottom:1px solid var(--line);background:rgba(10,13,18,.94);backdrop-filter:blur(8px)}
+.c-marca{display:flex;align-items:center;gap:10px;font-family:'Chivo Mono',monospace;font-weight:700;font-size:13px;letter-spacing:.16em}
+.c-marca i{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;background:var(--acc);color:#111;font-style:normal;font-weight:800;letter-spacing:0}
+.c-marca small{font-family:'Chivo',sans-serif;font-weight:400;letter-spacing:0;color:var(--mut);font-size:12px}
+.c-cmd{position:relative;flex:1;max-width:680px}
+.c-cmd form{display:flex;align-items:center;gap:10px;height:42px;padding:0 8px 0 13px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--mut)}
+.c-cmd form:focus-within{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-soft)}
+.c-cmd input{flex:1;min-width:0;border:0;background:transparent;outline:none;font-size:14px;color:var(--ink)}
+.c-cmd input::placeholder{color:var(--mut)}
+.c-cmd kbd{font-family:'Chivo Mono',monospace;font-size:11px;border:1px solid var(--line);border-radius:5px;padding:2px 6px;color:var(--mut)}
+.c-drop{position:absolute;left:0;right:0;top:48px;z-index:20;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:6px;box-shadow:0 24px 60px rgba(0,0,0,.55)}
+.c-drop h4{margin:8px 9px 4px;font-family:'Chivo Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.c-drop button{display:flex;width:100%;gap:10px;align-items:center;border:0;background:transparent;text-align:left;padding:9px 10px;border-radius:8px;font-size:13.5px;color:var(--ink)}
+.c-drop button:hover,.c-drop button:focus-visible{background:rgba(255,255,255,.06)}
+.c-drop button small{margin-left:auto;color:var(--mut);font-size:11.5px}
+.c-seg{display:inline-flex;padding:3px;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+.c-seg button{border:0;background:transparent;color:var(--mut);padding:7px 11px;border-radius:7px;font-size:12.5px}
+.c-seg button[aria-pressed="true"]{background:var(--ink);color:#0a0d12;font-weight:600}
+.c-vivo{display:flex;align-items:center;gap:8px;font-family:'Chivo Mono',monospace;font-size:11px;color:var(--mut);margin-left:auto}
+.c-side{border-right:1px solid var(--line);background:var(--panel);overflow:auto;position:sticky;top:63px;height:calc(100vh - 63px)}
+.c-side-h{padding:16px 16px 8px}
+.c-side-h small{font-family:'Chivo Mono',monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.c-side-h b{display:block;font-size:17px;margin-top:5px}
+.c-grupo{margin:14px 16px 4px;font-family:'Chivo Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+.c-arbol{list-style:none;margin:0;padding:4px 8px}
+.c-nodo{display:grid;grid-template-columns:12px minmax(0,1fr) auto 58px;gap:8px;align-items:center;width:100%;border:0;background:transparent;padding:8px 8px 8px calc(8px + var(--n,0) * 14px);border-radius:8px;text-align:left;color:var(--ink);font-size:13px}
+.c-nodo:hover{background:rgba(255,255,255,.045)}
+.c-nodo[aria-current="true"]{background:rgba(245,165,36,.12);box-shadow:inset 2px 0 0 var(--acc)}
+.c-nodo .car{color:var(--mut);font-size:10px}
+.c-nodo .nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.c-nodo .v{font-family:'Chivo Mono',monospace;font-size:11.5px;color:var(--mut)}
+.c-nodo.oculto{display:none}
+.c-canvas{padding:18px 24px 36px;min-width:0}
+.c-migas{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:12.5px;color:var(--mut)}
+.c-migas button{border:0;background:transparent;color:var(--acc);padding:2px}
+.c-head{animation:entra .35s ease both}
+.c-head h1{margin:6px 0 4px;font-size:34px;font-weight:700;line-height:1.05;letter-spacing:-.02em}
+.c-det{color:var(--mut);font-size:13px}
+.c-stats{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}
+.c-stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px;min-width:142px}
+.c-stat small{display:block;font-family:'Chivo Mono',monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+.c-stat b{display:block;margin-top:8px;font-family:'Chivo Mono',monospace;font-size:21px;font-weight:600;white-space:nowrap}
+.c-stat b small{display:inline;font-family:'Chivo',sans-serif;font-size:12px;letter-spacing:0;text-transform:none;margin-left:4px}
+.c-stat .delta{margin-top:7px}
+.c-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 14px 8px;min-width:0}
+.c-card-h{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:6px}
+.c-card h3{font-size:14px;font-weight:700}
+.c-card p.s{margin-top:3px;font-size:12px;color:var(--mut)}
+.c-fila{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:14px}
+.c-pins{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:14px;margin-bottom:18px}
+.c-pins h2{grid-column:1/-1;font-family:'Chivo Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mut)}
+.c-resp{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset;margin-bottom:18px;animation:entra .35s ease both}
+.c-resp .acc{display:flex;gap:8px;margin-top:6px;padding-bottom:6px}
+.c-btn{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:8px;padding:6px 10px;font-size:12.5px;display:inline-flex;gap:6px;align-items:center}
+.c-btn.pri{border-color:var(--acc);color:var(--acc)}
+.c-x{border:0;background:transparent;color:var(--mut);width:28px;height:28px;border-radius:7px;display:grid;place-items:center}
+.c-x:hover{background:rgba(255,255,255,.06);color:var(--ink)}
+.c-notas{margin-top:14px}
+@media (max-width:1060px){.c-app{grid-template-columns:minmax(0,1fr)}.c-side{position:static;height:auto;max-height:340px}.c-fila{grid-template-columns:minmax(0,1fr)}.c-pins{grid-template-columns:minmax(0,1fr)}.c-vivo{display:none}}
+@media (max-width:720px){.c-top{flex-wrap:wrap}.c-cmd{order:3;flex-basis:100%;max-width:none}}
+
+/* ================= Ajustes compartidos por las variantes ================= */
+[hidden]{display:none!important}
+.a-cli b{white-space:nowrap}
+.con-chat .a-vivo .largo,.con-chat .a-mod i,.con-chat .a-marca small{display:none}
+figure{margin:0}
+.a-vacio{padding:34px 12px 38px;color:var(--mut);font-size:13px;line-height:1.5;text-align:center}
+.b-link{border:0;background:none;padding:0;font:inherit;color:inherit;text-align:left;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.b-link:hover{text-decoration-color:var(--acc)}
+.b-lista span{min-width:0}
+.b-cifra .delta{font-family:'Instrument Sans',sans-serif;font-size:13px;align-self:center}
+.b-head .a-migas{margin-bottom:12px}
+.b-agregado p.b-cap{margin-top:6px}
+.c-barra{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.c-barra i{display:block;height:100%;background:var(--acc);border-radius:2px}
+.c-canvas>.c-card{margin-top:14px}
+.c-resp .msg.ia{border:0;background:transparent;padding:0}
+.c-resp .msg .chart{height:240px}
+.c-resp .c-card-h h3{font-size:16px}
+.c-migas span[aria-current]{color:var(--ink)}
+
+/* ================= A v2: niveles (matrioska) + arrastrar y soltar ================= */
+@media (min-width:1181px){body.chat-abierto #proto{left:calc(50% - 192px)}}
+.a-ruta{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px;margin-bottom:18px}
+.a-paso{display:flex;flex-direction:column;justify-content:center;gap:3px;min-width:0;max-width:300px;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:8px 14px;color:var(--ink)}
+.a-paso small{font-family:'Martian Mono',monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+.a-paso b{font-size:14px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.a-paso:hover{border-color:var(--ink)}
+.a-paso.actual{background:var(--ink);border-color:var(--ink);color:var(--card)}
+.a-paso.actual small{color:rgba(251,250,247,.72)}
+.a-paso.fantasma{border-style:dashed;background:transparent;color:var(--mut)}
+.a-paso.fantasma b{font-weight:500}
+.a-sep{align-self:center;color:var(--mut);font-size:18px}
+.a-main.entra{animation:abre .38s cubic-bezier(.2,.7,.2,1) both}
+.a-main.sale{animation:cierra .3s ease both}
+@keyframes abre{from{opacity:0;transform:scale(.975)}to{opacity:1;transform:none}}
+@keyframes cierra{from{opacity:0;transform:scale(1.02)}to{opacity:1;transform:none}}
+.a-hijos{list-style:none;margin:0;padding:6px 6px 8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:12px}
+.a-hijo{width:100%;height:100%;display:flex;flex-direction:column;gap:8px;text-align:left;border:1px solid var(--line);background:#fffefb;border-radius:12px;padding:13px 14px 12px;color:var(--ink);transition:transform .15s ease,box-shadow .15s ease,border-color .15s}
+button.a-hijo:hover{transform:translateY(-2px);border-color:var(--ink);box-shadow:0 10px 24px rgba(28,27,24,.09)}
+.a-hijo-n{font-size:15px;font-weight:650;line-height:1.25}
+.a-hijo-v{font-family:'Martian Mono',monospace;font-size:22px;font-weight:600;letter-spacing:-.02em;line-height:1}
+.a-hijo-v small{font-family:'Archivo',sans-serif;font-size:12px;font-weight:500;color:var(--mut);margin-left:5px;letter-spacing:0}
+.a-hijo-fila{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--mut)}
+.a-hijo-barra{display:block;height:5px;border-radius:3px;background:var(--grid);overflow:hidden}
+.a-hijo-barra i{display:block;height:100%;border-radius:3px}
+.a-hijo .spark{display:block;max-width:100%}
+.a-hijo-est{font-size:11.5px;color:var(--mut)}
+.a-hijo-est.alerta{color:var(--malo);font-weight:600}
+.a-hijo-est.aviso{color:var(--alerta);font-weight:600}
+.a-hijo-ir{margin-top:auto;font-size:12.5px;font-weight:650;color:var(--acc)}
+.a-hijo.otros{border-style:dashed;background:transparent}
+.a-hijo-txt{font-size:12px;line-height:1.45;color:var(--mut)}
+.a-fuera{margin:14px 12px 2px;font-family:'Martian Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+.a-w-t{flex:1;min-width:0}
+.a-asa{width:24px;height:30px;display:grid;place-items:center;border:0;background:transparent;color:var(--mut);cursor:grab;border-radius:6px;font-size:16px;line-height:1;flex:none;margin-left:-8px;touch-action:none}
+.a-asa:hover{background:#f3f0e9;color:var(--ink)}
+.a-asa:active{cursor:grabbing}
+.a-w.arrastrando{opacity:.4}
+.a-w[data-lado="h"].drop-antes{box-shadow:-6px 0 0 -1px var(--acc)}
+.a-w[data-lado="h"].drop-despues{box-shadow:6px 0 0 -1px var(--acc)}
+.a-w[data-lado="v"].drop-antes{box-shadow:0 -6px 0 -1px var(--acc)}
+.a-w[data-lado="v"].drop-despues{box-shadow:0 6px 0 -1px var(--acc)}
+.a-mover{display:flex;flex-direction:column;gap:5px;font-family:'Martian Mono',monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+.a-mover div{display:flex;gap:4px}
+.a-mover button{font-family:'Archivo',sans-serif;text-transform:none;letter-spacing:0;font-size:12.5px;border:1px solid var(--line);background:var(--card);border-radius:7px;padding:5px 9px;color:var(--ink)}
+.a-agregar{margin-top:14px;display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.a-add{border:1.5px dashed var(--line);background:transparent;border-radius:12px;padding:12px 18px;font-weight:650;font-size:13.5px;color:var(--ink)}
+.a-add:hover,.a-add[aria-expanded="true"]{border-color:var(--ink);background:var(--card)}
+.a-reset{border:0;background:none;padding:0;color:var(--mut);font-size:12.5px;text-decoration:underline;text-underline-offset:3px}
+.a-agregar-nota{font-size:12px;color:var(--mut)}
+.a-paleta{flex-basis:100%;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.a-paleta button{display:flex;flex-direction:column;gap:3px;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:10px 12px;font-weight:600;font-size:13px}
+.a-paleta button:hover{border-color:var(--ink)}
+.a-paleta small{font-weight:400;color:var(--mut);font-size:11.5px;line-height:1.35}
+.a-grid{grid-auto-flow:row dense}
+.a-grid-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:22px 2px 10px}
+.a-grid-h h2{font-size:17px;font-weight:700;font-stretch:112%}
+.a-grid-h p{font-size:12.5px;color:var(--mut)}
+.a-sec-hijos{margin-top:4px}
+.a-sec-hijos .a-w-h{padding-bottom:8px}
+
+/* ================= D · CHAT PRIMERO (tema del Tablero) ================= */
+body.v-D{--bg:#f1eee6;--card:#fbfaf7;--line:#d9d2c3;--grid:#e6e0d3;--ink:#1c1b18;--mut:#625e55;--acc:#c2410c;--acc-soft:rgba(194,65,12,.1);--prev:#9e978a;--bueno:#256d43;--malo:#b42318;--alerta:#8a4b00;--malo-bg:#fae4e1;--bueno-bg:#e0f0e5;--neutro-bg:#ebe7de;--foco:#c2410c;
+  background:var(--bg);color:var(--ink);font-family:'Archivo',system-ui,sans-serif}
+body.v-D::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.6;
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:28px 28px}
+.d-app{position:relative;z-index:1;min-height:100vh}
+.d-tabs{margin-left:10px}
+.d-tabs button{display:inline-flex;align-items:center;gap:6px}
+.d-badge{display:inline-grid;place-items:center;min-width:19px;height:19px;padding:0 5px;border-radius:10px;background:var(--acc);color:#fff;font-size:11px;font-weight:700;line-height:1}
+.d-badge.pulsa{animation:pulsa .5s ease 3}
+@keyframes pulsa{50%{transform:scale(1.35)}}
+.d-cuerpo{display:grid;grid-template-columns:400px minmax(0,1fr);min-height:calc(100vh - 57px)}
+.d-mapa{position:sticky;top:57px;height:calc(100vh - 57px);overflow:auto;border-right:1px solid var(--line);background:rgba(251,250,247,.82);padding:16px 14px 90px}
+.d-mapa h2{font-size:16px;font-weight:700;font-stretch:112%}
+.d-mapa>p{margin-top:4px;font-size:12px;line-height:1.45;color:var(--mut)}
+.d-sankey{width:100%;margin-top:8px}
+.d-sel{margin-top:10px;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:12px 14px;display:grid;gap:8px}
+.d-sel small{font-family:'Martian Mono',monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mut)}
+.d-sel b{font-size:15px}
+.d-sel .num{font-family:'Martian Mono',monospace;font-size:20px;font-weight:600}
+.d-sel .fila{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:12px;color:var(--mut)}
+.d-sel .btns{display:flex;flex-wrap:wrap;gap:6px}
+.d-btn{border:1px solid var(--line);background:var(--card);border-radius:9px;padding:7px 11px;font-size:12.5px;font-weight:600;color:var(--ink)}
+.d-btn:hover{border-color:var(--ink)}
+.d-btn.pri{background:var(--ink);border-color:var(--ink);color:var(--card)}
+.d-leyenda{margin-top:10px;font-size:11.5px;line-height:1.45;color:var(--mut)}
+.d-chat{min-width:0;width:100%;max-width:1000px;margin:0 auto;padding:22px 28px 0;display:flex;flex-direction:column}
+.d-log{display:flex;flex-direction:column;gap:14px;padding-bottom:12px}
+.d-log .msg{font-size:14.5px}
+.d-log .msg.ia{border-radius:4px 16px 16px 16px;padding:16px 18px}
+.d-log .msg .chart{height:270px}
+.d-log .msg h4{font-size:15.5px}
+.d-pie{position:sticky;bottom:0;padding:14px 0 86px;background:linear-gradient(rgba(241,238,230,0),var(--bg) 22px)}
+.d-ctx{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px;font-size:12px;color:var(--mut)}
+.d-ctx button{border:1px solid var(--acc);color:var(--acc);background:var(--card);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600}
+.d-pie form{display:flex;gap:8px;align-items:center;border:2px solid var(--ink);border-radius:16px;padding:6px 6px 6px 16px;background:var(--card)}
+.d-pie form:focus-within{box-shadow:0 0 0 4px var(--acc-soft)}
+.d-pie input{flex:1;min-width:0;border:0;background:transparent;font-size:15.5px;outline:none;padding:8px 0}
+.d-pie button[type=submit]{border:0;background:var(--ink);color:var(--card);border-radius:11px;padding:11px 18px;font-weight:650}
+.d-pie .chips{margin-top:10px}
+.d-alt{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px;font-size:12px;color:var(--mut)}
+.d-alt button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:5px 11px;font-size:12px;color:var(--ink)}
+.d-alt button:hover{border-color:var(--ink)}
+.d-alt button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--card)}
+.d-sug{margin-top:8px;font-size:12.5px;color:var(--alerta)}
+.d-dash{padding:22px 28px 110px;max-width:1500px;margin:0 auto}
+.d-dash-h{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.d-dash-h h1{font-size:30px;line-height:1.05;font-weight:750;font-stretch:115%}
+.d-dash-h p{margin-top:6px;font-size:13px;color:var(--mut)}
+.d-dash-acc{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.d-captura{padding:4px}
+.d-captura-pie{display:none;margin-top:12px;font-size:11.5px;color:var(--mut)}
+.d-captura.capturando .d-captura-pie{display:block}
+.d-captura.capturando .a-asa,.d-captura.capturando .a-w-acc,.d-captura.capturando .d-alt{display:none}
+.d-vacio{max-width:560px;margin:8vh auto;text-align:center;display:grid;gap:12px;justify-items:center;font-size:14px;line-height:1.55;color:var(--mut)}
+.d-vacio b{font-size:20px;color:var(--ink)}
+.d-aviso{position:fixed;left:50%;top:70px;transform:translateX(-50%);z-index:40;display:flex;gap:12px;align-items:center;background:var(--ink);color:var(--card);border-radius:999px;padding:8px 8px 8px 16px;font-size:13px;box-shadow:0 12px 30px rgba(0,0,0,.25);animation:entra .3s ease both}
+.d-aviso button{border:0;background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font-weight:650;font-size:12.5px}
+.d-w-pie{padding:0 16px 12px}
+@media (max-width:1100px){.d-cuerpo{grid-template-columns:minmax(0,1fr)}.d-mapa{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);padding-bottom:16px}}
+</style>
+</head>
+<body>
+<a class="saltar" href="#app">Saltar al contenido</a>
+<div id="app" tabindex="-1"></div>
+<nav id="proto" aria-label="Controles del prototipo"></nav>
+<script id="datos" type="application/json">null</script>
+<script src="vendor/echarts.min.js"></script>
+<script src="vendor/html2canvas.min.js"></script>
+<script>
+'use strict';
+/* =====================================================================
+   NÚCLEO COMPARTIDO: datos, cálculos, formato, gráficos y chat simulado.
+   Cada variante (A, B, C) solo decide la estructura de la página.
+   ===================================================================== */
+const RAW = document.getElementById('datos').textContent.trim();
+const D = RAW && RAW !== 'null' ? JSON.parse(RAW) : null;
+const REDUCIR = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+const VARIANTES = {A: 'Tablero', B: 'Informe vivo', C: 'Explorador', D: 'Chat primero'};
+const PERIODOS = {'7d': 'Últimos 7 días', mes: 'Este mes', mes_ant: 'Mes pasado'};
+const NOCHE_H = [0, 1, 2, 3, 4, 5, 6, 7, 22, 23];            // 22:00–08:00 (definición del reporte mensual)
+const HORAS = Array.from({length: 24}, (_, h) => String(h).padStart(2, '0'));
+
+/* ---------- Formato (es-PE: miles con coma, decimales con punto) ---------- */
+const NF = [0, 1, 2].map(d => new Intl.NumberFormat('es-PE', {minimumFractionDigits: d, maximumFractionDigits: d}));
+const [nf0, nf1, nf2] = NF;
+const MENOS = '−';
+function energia(kwh) {
+  const a = Math.abs(kwh);
+  if (a >= 10000) return [nf2.format(kwh / 1000), 'MWh'];
+  if (a >= 100) return [nf0.format(kwh), 'kWh'];
+  return [nf1.format(kwh), 'kWh'];
+}
+const energiaTxt = kwh => energia(kwh).join(' ');
+function dinero(x, mon) {
+  if (x == null || !isFinite(x)) return '—';
+  const a = Math.abs(x);
+  if (a >= 1e6) return `${mon} ${nf2.format(x / 1e6)} millones`;
+  if (a >= 1e4) return `${mon} ${nf1.format(x / 1e3)} mil`;
+  return `${mon} ${nf0.format(x)}`;
+}
+const pct = (x, d = 0) => `${NF[d].format(x * 100)}%`;
+const compacto = v => Math.abs(v) >= 1000 ? `${nf1.format(v / 1000)} k` : nf0.format(v);
+const DS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+const DL = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const MS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const ML = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+const pad = n => String(n).padStart(2, '0');
+const diaCorto = f => `${DS[f.getUTCDay()]} ${f.getUTCDate()}`;
+const diaMedio = f => `${DS[f.getUTCDay()]} ${f.getUTCDate()} ${MS[f.getUTCMonth()]}`;
+const diaLargo = f => `${DL[f.getUTCDay()]} ${f.getUTCDate()} de ${ML[f.getUTCMonth()]}`;
+const horaLima = dt => { const x = new Date(dt.getTime() - 5 * 36e5); return `${pad(x.getUTCHours())}:${pad(x.getUTCMinutes())}`; };
+const fechaLima = dt => { const x = new Date(dt.getTime() - 5 * 36e5); return new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate())); };
+
+/* Variación vs periodo anterior: más consumo = rojo (malo), menos = verde. */
+function deltaHtml(x, contra) {
+  if (x == null || !isFinite(x)) return '<span class="delta neutro">sin comparación</span>';
+  const sube = x > 0.005, baja = x < -0.005;
+  const cls = sube ? 'malo' : baja ? 'bueno' : 'neutro';
+  const txt = sube ? `+${pct(x, 1)}` : baja ? `${MENOS}${pct(-x, 1)}` : 'igual';
+  const sr = sube ? 'más' : baja ? 'menos' : 'sin cambio';
+  return `<span class="delta ${cls}"><span aria-hidden="true">${sube ? '▲' : baja ? '▼' : '='}</span>${txt}<span class="sr"> ${sr} que ${esc(contra || 'el periodo anterior')}</span></span>`;
+}
+function deltaPP(x, contra) {          // diferencia en puntos porcentuales
+  if (x == null || !isFinite(x)) return '<span class="delta neutro">sin comparación</span>';
+  const pp = x * 100, sube = pp > 0.15, baja = pp < -0.15;
+  const cls = sube ? 'malo' : baja ? 'bueno' : 'neutro';
+  const txt = sube ? `+${nf1.format(pp)} pp` : baja ? `${MENOS}${nf1.format(-pp)} pp` : 'igual';
+  return `<span class="delta ${cls}"><span aria-hidden="true">${sube ? '▲' : baja ? '▼' : '='}</span>${txt}<span class="sr"> puntos porcentuales ${esc(`frente a ${contra || 'el periodo anterior'}`.replace(/^frente a el /, 'frente al '))}</span></span>`;
+}
+const ICON = {
+  rayo: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg>',
+  termo: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 14.8V5a2 2 0 1 0-4 0v9.8a4 4 0 1 0 4 0z"/></svg>',
+  gota: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3s6 6.4 6 11a6 6 0 0 1-12 0c0-4.6 6-11 6-11z"/></svg>',
+  chat: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  pin: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4h6l-1 6 3 3v2H7v-2l3-3-1-6zM12 15v6"/></svg>',
+  lapiz: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg>',
+  x: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>',
+  lupa: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></svg>',
+  flecha: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>',
+};
+
+/* ---------- Tiempo: índices de hora y de día desde t0 (medianoche Lima) ---------- */
+const T0 = D ? new Date(D.t0) : null;
+const DIA0 = D ? Date.UTC(+D.t0.slice(0, 4), +D.t0.slice(5, 7) - 1, +D.t0.slice(8, 10)) : 0;
+const fecha = d => new Date(DIA0 + d * 864e5);                 // fecha local (Lima) como fecha UTC
+const idxDia = (y, m, d) => Math.round((Date.UTC(y, m, d) - DIA0) / 864e5);
+const sumR = (s, a, b) => { let t = 0; for (let i = Math.max(0, a); i < b; i++) t += s[i]; return t; };
+const suma = a => a.reduce((t, x) => t + x, 0);
+const prom = a => a.length ? suma(a) / a.length : 0;
+function pctl(a, q) { if (!a.length) return 0; const v = a.slice().sort((x, y) => x - y); return v[Math.min(v.length - 1, Math.round(q * (v.length - 1)))]; }
+const r1 = v => v == null ? null : Math.round(v * 10) / 10;
+
+/* ---------- Modelo por cliente: árbol de medición y series horarias ---------- */
+const MODELOS = {};
+function modelo(clave) {
+  if (MODELOS[clave]) return MODELOS[clave];
+  const c = D.clientes[clave], N = D.n_horas;
+  const nodos = new Map();
+  const prep = (n, padre, fuera, nivel) => {
+    n.padre = padre; n.fuera = fuera; n.nivel = nivel; nodos.set(n.id, n);
+    n.hijos.forEach(h => prep(h, n, fuera, nivel + 1));
+  };
+  prep(c.arbol, null, false, 0);
+  c.fuera.forEach(f => prep(f, null, true, 1));
+  const cero = new Float64Array(N);
+  const serie = n => {
+    if (n.s) return n.s;
+    if (n.punto) n.s = Float64Array.from(c.kwh[n.punto] || cero);
+    else { const s = new Float64Array(N); n.hijos.forEach(h => { const x = serie(h); for (let i = 0; i < N; i++) s[i] += x[i]; }); n.s = s; }
+    return n.s;
+  };
+  const hasta = new Date(c.datos_hasta || D.datos_hasta);
+  const hHasta = Math.min(N - 1, Math.floor((hasta - T0) / 36e5));
+  const m = {clave, c, nodos, serie, raiz: c.arbol, hasta, hHasta, dHoy: Math.floor(hHasta / 24), cache: new Map()};
+  // Color fijo por tablero (primer nivel del árbol): lo comparten todos los gráficos.
+  m.colorDe = (n, pal) => {
+    let x = n; while (x.padre && x.padre !== m.raiz) x = x.padre;
+    const i = m.raiz.hijos.indexOf(x);
+    return i >= 0 ? pal[i % pal.length] : pal[pal.length - 1];
+  };
+  return (MODELOS[clave] = m);
+}
+const hojasDe = n => { const out = []; const w = x => x.hijos.forEach(h => h.hijos.length ? w(h) : out.push(h)); w(n); return out; };
+const puntosDe = n => n.punto ? [n.punto] : n.hijos.flatMap(h => h.punto ? [h.punto] : []);
+const ruta = n => { const r = []; for (let x = n; x; x = x.padre) r.unshift(x); return r; };
+const sinTildes = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+function periodo(m, clave) {
+  const hoy = fecha(m.dHoy), y = hoy.getUTCFullYear(), mo = hoy.getUTCMonth();
+  if (clave === 'mes' && hoy.getUTCDate() === 1) clave = 'mes_ant';
+  let d0, d1, p0, p1;
+  if (clave === '7d') { d0 = m.dHoy - 7; d1 = m.dHoy; p0 = d0 - 7; p1 = d0; }
+  else if (clave === 'mes') { d0 = idxDia(y, mo, 1); d1 = m.dHoy; p0 = idxDia(y, mo - 1, 1); p1 = p0 + (d1 - d0); }
+  else { d0 = idxDia(y, mo - 1, 1); d1 = idxDia(y, mo, 1); p0 = idxDia(y, mo - 2, 1); p1 = d0; }
+  const okPrev = p0 >= 0;
+  const mesA = ML[mo], mesP = ML[(mo + 11) % 12], mesP2 = ML[(mo + 10) % 12];
+  return {
+    clave, d0, d1, p0, p1, okPrev, nombre: PERIODOS[clave],
+    rango: rangoTxt(d0, d1 - 1), rangoPrev: okPrev ? rangoTxt(p0, p1 - 1) : null,
+    frase: {'7d': 'los últimos 7 días', mes: `lo que va de ${mesA}`, mes_ant: mesP}[clave],
+    fraseEn: {'7d': 'en los últimos 7 días', mes: `en lo que va de ${mesA}`, mes_ant: `en ${mesP}`}[clave],
+    fraseComp: {'7d': 'los 7 días anteriores', mes: `el mismo tramo de ${mesP}`, mes_ant: mesP2}[clave],
+  };
+}
+function rangoTxt(a, b) {
+  const fa = fecha(a), fb = fecha(b);
+  if (a === b) return diaMedio(fa);
+  if (fa.getUTCDate() === 1 && fecha(b + 1).getUTCDate() === 1 && fa.getUTCMonth() === fb.getUTCMonth()) return ML[fa.getUTCMonth()];
+  if (fa.getUTCMonth() === fb.getUTCMonth()) return `${fa.getUTCDate()}–${fb.getUTCDate()} ${MS[fb.getUTCMonth()]}`;
+  return `${fa.getUTCDate()} ${MS[fa.getUTCMonth()]} – ${fb.getUTCDate()} ${MS[fb.getUTCMonth()]}`;
+}
+
+function cobertura(m, n, a, b) {
+  const pts = puntosDe(n); if (!pts.length || b <= a) return 1;
+  let t = 0; pts.forEach(p => { const l = m.c.lect[p] || []; for (let i = a; i < b; i++) t += l[i] || 0; });
+  return Math.min(1, t / (60 * (b - a) * pts.length));
+}
+
+/* Todo lo que muestran los widgets para un nodo y un periodo (con caché). */
+function calc(m, nodo, per) {
+  const key = `${nodo.id}|${per.clave}`;
+  if (m.cache.has(key)) return m.cache.get(key);
+  const s = m.serie(nodo);
+  const dias = [], matriz = [], porHora = HORAS.map(() => []);
+  const lab = new Array(24).fill(0), fds = new Array(24).fill(0);
+  let noche = 0, punta = 0, kLab = 0, kFds = 0, nLab = 0, nFds = 0;
+  for (let d = per.d0; d < per.d1; d++) {
+    const f = fecha(d), wd = f.getUTCDay(), esLab = wd >= 1 && wd <= 5;
+    let tot = 0, no = 0; const fila = [];
+    for (let h = 0; h < 24; h++) {
+      const v = s[d * 24 + h]; tot += v; fila.push(v); porHora[h].push(v);
+      if (h < 8 || h >= 22) no += v;
+      if (esLab && h >= 18 && h <= 22) punta += v;
+      (esLab ? lab : fds)[h] += v;
+    }
+    noche += no; matriz.push(fila);
+    if (esLab) { nLab++; kLab += tot; } else { nFds++; kFds += tot; }
+    dias.push({d, f, kwh: tot, noche: no});
+  }
+  const prev = []; let pPunta = 0;
+  if (per.okPrev) for (let d = per.p0; d < per.p1; d++) {
+    const f = fecha(d), wd = f.getUTCDay(); let tot = 0, no = 0;
+    for (let h = 0; h < 24; h++) { const v = s[d * 24 + h]; tot += v; if (h < 8 || h >= 22) no += v; if (wd >= 1 && wd <= 5 && h >= 18 && h <= 22) pPunta += v; }
+    prev.push({d, f, kwh: tot, noche: no});
+  }
+  const a = per.d0 * 24, b = per.d1 * 24;
+  const total = suma(dias.map(x => x.kwh)), nd = dias.length || 1, promDia = total / nd;
+  const pTot = suma(prev.map(x => x.kwh)), pProm = prev.length ? pTot / prev.length : null;
+  const pNoche = prev.length ? suma(prev.map(x => x.noche)) / prev.length : null;
+  const sumNodo = n => sumR(m.serie(n), a, b);
+  const nocheNodo = n => { const t = m.serie(n); let x = 0; for (let d = per.d0; d < per.d1; d++) for (const h of NOCHE_H) x += t[d * 24 + h]; return x / nd; };
+  const hijos = nodo.hijos.map(n => ({nodo: n, kwh: sumNodo(n)})).sort((x, y) => y.kwh - x.kwh);
+  const otros = nodo.punto && nodo.hijos.length ? total - suma(hijos.map(x => x.kwh)) : null;
+  const hojas = hojasDe(nodo).map(n => ({nodo: n, kwh: sumNodo(n), noche: nocheNodo(n), cob: cobertura(m, n, a, b)})).sort((x, y) => y.kwh - x.kwh);
+  const max = dias.reduce((x, y) => y.kwh > x.kwh ? y : x, dias[0]);
+  const min = dias.reduce((x, y) => y.kwh < x.kwh ? y : x, dias[0]);
+  const raizTot = nodo === m.raiz ? total : sumNodo(m.raiz);
+  const t = m.c.tarifa, curva = porHora.map(prom), p95 = porHora.map(v => pctl(v, 0.95));
+  const k = {
+    m, nodo, per, dias, prev, matriz, total, nd, prom: promDia, pTot, pProm,
+    delta: pProm ? promDia / pProm - 1 : null,
+    nocheDia: noche / nd, nocheTot: noche, nochePct: total ? noche / total : 0,
+    deltaNoche: pNoche ? (noche / nd) / pNoche - 1 : null,
+    punta, puntaPct: total ? punta / total : 0, pPuntaPct: pTot ? pPunta / pTot : null,
+    curva, p95, curvaLab: lab.map(v => nLab ? v / nLab : null), curvaFds: fds.map(v => nFds ? v / nFds : null),
+    kLab, kFds, nLab, nFds, hijos, otros, hojas, max, min,
+    cob: cobertura(m, nodo, a, b), share: nodo.fuera ? null : (raizTot ? total / raizTot : null),
+    costo: t.kwh ? total * t.kwh : null, kwPico: Math.max(...p95), hPico: p95.indexOf(Math.max(...p95)),
+  };
+  m.cache.set(key, k);
+  return k;
+}
+function partes(k) {          // tableros/circuitos hijos + "otros no desagregados" (si es positivo)
+  const out = k.hijos.map(x => ({id: x.nodo.id, nodo: x.nodo, nombre: x.nodo.nombre, kwh: x.kwh}));
+  if (k.otros != null && k.otros > 0.005 * k.total) out.push({id: null, nombre: 'Otros no desagregados', kwh: k.otros, otros: true});
+  return out;
+}
+/* Color de cada parte: en la sede, el color fijo de su tablero; dentro de un tablero, por orden. */
+const colorParte = (k, it, i, tema) => it.otros ? tema.otros
+  : (k.nodo === k.m.raiz && it.nodo ? k.m.colorDe(it.nodo, tema.pal) : tema.pal[i % tema.pal.length]);
+function notas(k, que = 'todo') {
+  const out = [];
+  if (que === 'todo' || que === 'cob') {
+    if (k.per.d1 === k.m.dHoy) out.push({t: 'Hoy no se incluye: el día todavía está en curso.'});
+    if (k.cob < 0.97) out.push({t: `Llegó el ${pct(k.cob)} de las lecturas esperadas; la energía de los huecos se recupera con el contador.`});
+  }
+  if ((que === 'todo' || que === 'rep') && k.otros != null && k.otros < -0.01 * k.total)
+    out.push({t: `Los circuitos de ${k.nodo.nombre} suman ${pct(-k.otros / k.total)} más que su llave general: hay que revisar esa medición.`, alerta: true});
+  if (que === 'todo' || que === 'rank') {
+    const quietos = k.hojas.filter(x => x.kwh / k.nd < 0.1 && x.cob > 0.5).map(x => x.nodo.nombre);
+    if (quietos.length) out.push({t: `Sin consumo registrado: ${quietos.join(', ')} (llegan lecturas, pero el contador no avanza).`, alerta: true});
+  }
+  return out;
+}
+const notasHtml = (lista, cls = '') => lista.length ? `<ul class="notas ${cls}">${lista.map(n => `<li class="${n.alerta ? 'alerta' : ''}">${esc(n.t)}</li>`).join('')}</ul>` : '';
+function spark(vals, color, w = 92, h = 28) {
+  if (!vals.length) return '';
+  const max = Math.max(...vals), min = Math.min(...vals), r = max - min || 1;
+  const pts = vals.map((v, i) => `${(1 + i / Math.max(1, vals.length - 1) * (w - 2)).toFixed(1)},${(h - 2 - (v - min) / r * (h - 4)).toFixed(1)}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+/* ---------- Gráficos (ECharts). El tema lo pone cada variante. ---------- */
+const TEMAS = {
+  A: {ink: '#1c1b18', mut: '#625e55', line: '#d9d2c3', grid: '#ebe6db', card: '#fbfaf7', acc: '#c2410c', accSoft: 'rgba(194,65,12,.11)', prev: '#8f887b', otros: '#cfc7b6', alto: '#7c2d12', bajo: '#2b59c3', noche: '#2b3a55', tipBg: '#1c1b18', tipInk: '#fbfaf7', punta: 'rgba(43,89,195,.07)', sobre: '#fff',
+      font: 'Archivo, system-ui, sans-serif', mono: '"Martian Mono", ui-monospace, monospace',
+      pal: ['#c2410c', '#2b59c3', '#256d43', '#a87b00', '#6d4bab', '#0e7490', '#9f1239'], heat: ['#f6f2ea', '#fbd9c0', '#f4a06a', '#d9531e', '#7c2d12']},
+  B: {ink: '#211b15', mut: '#655a4d', line: '#ddd0bc', grid: '#ece3d4', card: '#fffdf8', acc: '#a8401a', accSoft: 'rgba(168,64,26,.12)', prev: '#9b8a74', otros: '#d8cbb6', alto: '#6b1f08', bajo: '#1f3a5f', noche: '#1f3a5f', tipBg: '#211b15', tipInk: '#fffdf8', punta: 'rgba(31,58,95,.07)', sobre: '#fff',
+      font: '"Instrument Sans", system-ui, sans-serif', mono: '"Instrument Sans", system-ui, sans-serif',
+      pal: ['#a8401a', '#1f3a5f', '#4d7c5f', '#b7892c', '#6d5a8a', '#2f6f73', '#8c2f39'], heat: ['#fffdf8', '#f3dccb', '#e0a17c', '#c0623a', '#6b1f08']},
+  C: {ink: '#e6edf3', mut: '#93a1af', line: '#243040', grid: '#1a2330', card: '#10151c', acc: '#f5a524', accSoft: 'rgba(245,165,36,.16)', prev: '#64788d', otros: '#3a4657', alto: '#ff8a5b', bajo: '#3fb8af', noche: '#7aa2f7', tipBg: '#1c2431', tipInk: '#e6edf3', punta: 'rgba(122,162,247,.09)', sobre: '#0a0d12',
+      font: 'Chivo, system-ui, sans-serif', mono: '"Chivo Mono", ui-monospace, monospace',
+      pal: ['#f5a524', '#3fb8af', '#7aa2f7', '#e06c75', '#c3a6ff', '#98c379', '#e5c07b'], heat: ['#121821', '#2b2516', '#6e4b10', '#c7820d', '#ffd166']},
+};
+TEMAS.D = TEMAS.A;                       // "Chat primero" usa el estilo del Tablero (el elegido)
+const tip = (tema, extra) => Object.assign({trigger: 'axis', confine: true, backgroundColor: tema.tipBg, borderWidth: 0, padding: [8, 11], textStyle: {color: tema.tipInk, fontFamily: tema.font, fontSize: 12}, extraCssText: 'border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.2)'}, extra);
+const base = (tema, extra) => Object.assign({backgroundColor: 'transparent', animation: !REDUCIR, animationDuration: 450, textStyle: {fontFamily: tema.font, color: tema.ink}, aria: {enabled: true}, tooltip: tip(tema), grid: {left: 4, right: 14, top: 30, bottom: 4, containLabel: true}}, extra);
+const ejeX = (tema, data, extra) => Object.assign({type: 'category', data, axisTick: {show: false}, axisLine: {lineStyle: {color: tema.line}}, axisLabel: {color: tema.mut, fontSize: 11, fontFamily: tema.font}}, extra);
+const ejeY = (tema, nombre, extra) => Object.assign({type: 'value', name: nombre, nameTextStyle: {color: tema.mut, fontSize: 11, align: 'left', padding: [0, 0, 0, -2]}, splitLine: {lineStyle: {color: tema.grid}}, axisLabel: {color: tema.mut, fontSize: 10.5, fontFamily: tema.mono, formatter: compacto}}, extra);
+function valorDe(k, sp) {
+  const t = k.m.c.tarifa, costo = sp.metrica === 'costo' && !!t.kwh;
+  return {costo, f: v => costo ? v * t.kwh : v, txt: v => costo ? dinero(v, t.moneda) : energiaTxt(v), unidad: costo ? t.moneda : 'kWh'};
+}
+const OPC = {
+  diario(k, sp, tema) {
+    const V = valorDe(k, sp), tipo = sp.grafico || 'bar';
+    const iMax = k.dias.indexOf(k.max), iMin = k.dias.indexOf(k.min);
+    const datos = k.dias.map((d, i) => {
+      const v = r1(V.f(d.kwh));
+      if (!sp.extremos || (i !== iMax && i !== iMin)) return v;
+      return {value: v, itemStyle: {color: i === iMax ? tema.alto : tema.bajo}, label: {show: true, position: 'top', formatter: i === iMax ? 'más alto' : 'más bajo', color: tema.mut, fontSize: 10}};
+    });
+    const series = [{
+      name: k.per.rango, type: tipo === 'bar' ? 'bar' : 'line', data: datos, barMaxWidth: 24, symbol: 'none', smooth: tipo === 'bar' ? false : 0.3,
+      itemStyle: {color: tema.acc, borderRadius: tipo === 'bar' ? [3, 3, 0, 0] : 0}, lineStyle: {width: 2.4, color: tema.acc},
+      areaStyle: tipo === 'area' ? {color: tema.accSoft} : undefined,
+      markLine: {silent: true, symbol: 'none', lineStyle: {color: tema.mut, type: 'dotted'}, label: {formatter: 'promedio', color: tema.mut, fontSize: 10, position: 'insideEndTop', backgroundColor: tema.card, padding: [1, 4], borderRadius: 3}, data: [{yAxis: r1(V.f(k.prom))}]},
+    }];
+    if (estado.comparar && k.prev.length) series.push({name: k.per.rangoPrev, type: 'line', data: k.prev.slice(0, k.dias.length).map(d => r1(V.f(d.kwh))), symbol: 'none', smooth: 0.2, z: 5, lineStyle: {color: tema.prev, width: 1.6, type: [4, 4]}, itemStyle: {color: tema.prev}});
+    return base(tema, {
+      tooltip: tip(tema, {axisPointer: {type: 'shadow', shadowStyle: {color: tema.accSoft}}, formatter: ps => {
+        const i = ps[0].dataIndex, d = k.dias[i], p = k.prev[i];
+        return `<b>${diaMedio(d.f)}</b><br>${V.txt(V.f(d.kwh))}` + (estado.comparar && p ? `<br><span style="opacity:.72">${diaMedio(p.f)}: ${V.txt(V.f(p.kwh))}</span>` : '');
+      }}),
+      xAxis: ejeX(tema, k.dias.map(d => diaCorto(d.f))), yAxis: ejeY(tema, V.unidad), series,
+    });
+  },
+  reparto(k, sp, tema) {
+    const V = valorDe(k, sp), items = partes(k);
+    const color = (it, i) => colorParte(k, it, i, tema);
+    if ((sp.grafico || 'dona') === 'dona') {
+      const tot = V.costo ? dinero(V.f(k.total), k.m.c.tarifa.moneda) : energia(k.total)[0];
+      return base(tema, {
+        tooltip: tip(tema, {trigger: 'item', formatter: p => `${esc(p.name)}<br>${V.txt(p.value)} · ${pct(p.percent / 100)}`}),
+        series: [{type: 'pie', radius: ['60%', '86%'], center: ['50%', '50%'], padAngle: 1.5, itemStyle: {borderRadius: 3}, label: {show: false}, emphasis: {scaleSize: 4},
+          data: items.map((it, i) => ({name: it.nombre, value: r1(V.f(it.kwh)), nodoId: it.id, itemStyle: {color: color(it, i)}}))}],
+        graphic: [
+          {type: 'text', left: 'center', top: '40%', style: {text: tot, fill: tema.ink, font: `600 ${V.costo ? 15 : 19}px ${tema.mono}`, textAlign: 'center'}},
+          {type: 'text', left: 'center', top: '55%', style: {text: V.costo ? 'estimado' : energia(k.total)[1], fill: tema.mut, font: `500 12px ${tema.font}`, textAlign: 'center'}}],
+      });
+    }
+    return base(tema, {
+      grid: {left: 4, right: 86, top: 4, bottom: 4, containLabel: true},
+      tooltip: tip(tema, {trigger: 'item', formatter: p => `${esc(p.name)}<br>${V.txt(p.value)}`}),
+      xAxis: {type: 'value', show: false},
+      yAxis: {type: 'category', inverse: true, data: items.map(x => x.nombre), axisTick: {show: false}, axisLine: {show: false}, axisLabel: {color: tema.ink, fontSize: 12, width: 170, overflow: 'truncate'}},
+      series: [{type: 'bar', barWidth: 14, data: items.map((it, i) => ({value: r1(V.f(it.kwh)), nodoId: it.id, itemStyle: {color: color(it, i), borderRadius: 3}})),
+        label: {show: true, position: 'right', color: tema.mut, fontSize: 11, fontFamily: tema.mono, formatter: p => V.txt(p.value)}}],
+    });
+  },
+  reparto100(k, sp, tema) {
+    const items = partes(k), tot = suma(items.map(x => x.kwh)) || 1;
+    return base(tema, {
+      grid: {left: 0, right: 0, top: 0, bottom: 0},
+      tooltip: tip(tema, {trigger: 'item', formatter: p => `${esc(p.seriesName)}<br>${energiaTxt(items[p.seriesIndex].kwh)} · ${pct(p.value / 100)}`}),
+      xAxis: {type: 'value', max: 100, show: false}, yAxis: {type: 'category', data: [''], show: false},
+      series: items.map((it, i) => ({name: it.nombre, type: 'bar', stack: 'r', barWidth: 46, data: [{value: +(it.kwh / tot * 100).toFixed(2), nodoId: it.id}],
+        itemStyle: {color: colorParte(k, it, i, tema), borderColor: tema.card, borderWidth: 1},
+        label: {show: it.kwh / tot >= 0.07, position: 'inside', formatter: pct(it.kwh / tot), color: it.otros ? tema.ink : tema.sobre, fontWeight: 600, fontSize: 12}})),
+    });
+  },
+  curva(k, sp, tema) {
+    const markArea = {silent: true, itemStyle: {color: tema.punta}, label: {show: true, color: tema.mut, fontSize: 10, position: 'insideTop'}, data: [[{name: 'punta', xAxis: '18'}, {xAxis: '23'}]]};
+    const linea = (name, data, color, w, extra) => Object.assign({name, type: 'line', data: data.map(r1), smooth: 0.35, symbol: 'none', lineStyle: {width: w, color}, itemStyle: {color}}, extra);
+    const series = sp.modo === 'semana'
+      ? [linea('Laborables', k.curvaLab, tema.acc, 2.5, {areaStyle: {color: tema.accSoft}, markArea}), linea('Fin de semana', k.curvaFds, tema.pal[1], 2)]
+      : [linea('Promedio', k.curva, tema.acc, 2.5, {areaStyle: {color: tema.accSoft}, markArea}), linea('Días altos (P95)', k.p95, tema.ink, 1.3, {lineStyle: {width: 1.3, color: tema.ink, type: [5, 4]}})];
+    return base(tema, {
+      legend: {top: 0, right: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 4, textStyle: {color: tema.mut, fontSize: 11, fontFamily: tema.font}},
+      grid: {left: 4, right: 14, top: 34, bottom: 4, containLabel: true},
+      tooltip: tip(tema, {axisPointer: {type: 'line', lineStyle: {color: tema.line}}, valueFormatter: v => v == null ? '—' : `${nf0.format(v)} kW`}),
+      xAxis: ejeX(tema, HORAS, {boundaryGap: false, axisLabel: {color: tema.mut, fontSize: 10.5, interval: 2, formatter: v => `${v}h`}}),
+      yAxis: ejeY(tema, 'kW'), series,
+    });
+  },
+  ranking(k, sp, tema) {
+    const V = valorDe(k, sp), items = k.hojas.slice(0, sp.n || 8);
+    return base(tema, {
+      grid: {left: 4, right: 84, top: 4, bottom: 4, containLabel: true},
+      tooltip: tip(tema, {trigger: 'item', formatter: p => `${esc(p.name)}<br>${V.txt(p.value)}`}),
+      xAxis: {type: 'value', show: false, max: 'dataMax'},
+      yAxis: {type: 'category', inverse: true, data: items.map(x => x.nodo.nombre), axisTick: {show: false}, axisLine: {show: false}, axisLabel: {color: tema.ink, fontSize: 12, width: 180, overflow: 'truncate'}},
+      series: [{type: 'bar', barWidth: 12, showBackground: true, backgroundStyle: {color: tema.grid, borderRadius: 3},
+        data: items.map(x => ({value: r1(V.f(x.kwh)), nodoId: x.nodo.id, itemStyle: {color: sp.resaltar && x.nodo.id !== sp.resaltar ? tema.otros : k.m.colorDe(x.nodo, tema.pal), borderRadius: 3}})),
+        label: {show: true, position: 'right', color: tema.mut, fontSize: 11, fontFamily: tema.mono, formatter: p => V.txt(p.value)}}],
+    });
+  },
+  noche(k, sp, tema) {
+    if (!k.hojas.length) return OPC.nochedia(k, sp, tema);
+    const items = k.hojas.slice().sort((x, y) => y.noche - x.noche).slice(0, 8);
+    return base(tema, {
+      grid: {left: 4, right: 76, top: 4, bottom: 4, containLabel: true},
+      tooltip: tip(tema, {trigger: 'item', formatter: p => `${esc(p.name)}<br>${energiaTxt(p.value)} por noche`}),
+      xAxis: {type: 'value', show: false, max: 'dataMax'},
+      yAxis: {type: 'category', inverse: true, data: items.map(x => x.nodo.nombre), axisTick: {show: false}, axisLine: {show: false}, axisLabel: {color: tema.ink, fontSize: 12, width: 180, overflow: 'truncate'}},
+      series: [{type: 'bar', barWidth: 12, data: items.map(x => ({value: r1(x.noche), nodoId: x.nodo.id, itemStyle: {color: tema.noche, borderRadius: 3}})),
+        label: {show: true, position: 'right', color: tema.mut, fontSize: 11, fontFamily: tema.mono, formatter: p => energiaTxt(p.value)}}],
+    });
+  },
+  nochedia(k, sp, tema) {
+    return base(tema, {
+      legend: {top: 0, right: 0, icon: 'roundRect', itemWidth: 10, itemHeight: 10, textStyle: {color: tema.mut, fontSize: 11, fontFamily: tema.font}},
+      grid: {left: 4, right: 14, top: 34, bottom: 4, containLabel: true},
+      tooltip: tip(tema, {axisPointer: {type: 'shadow', shadowStyle: {color: tema.accSoft}}, valueFormatter: v => energiaTxt(v)}),
+      xAxis: ejeX(tema, k.dias.map(d => diaCorto(d.f))), yAxis: ejeY(tema, 'kWh'),
+      series: [
+        {name: 'Noche (22:00–08:00)', type: 'bar', stack: 'd', barMaxWidth: 24, data: k.dias.map(d => r1(d.noche)), itemStyle: {color: tema.noche}},
+        {name: 'Día (08:00–22:00)', type: 'bar', stack: 'd', barMaxWidth: 24, data: k.dias.map(d => r1(d.kwh - d.noche)), itemStyle: {color: tema.acc, borderRadius: [3, 3, 0, 0]}}],
+    });
+  },
+  heat(k, sp, tema) {
+    const datos = [], todos = [];
+    k.matriz.forEach((fila, j) => fila.forEach((v, h) => { datos.push([h, j, r1(v)]); todos.push(v); }));
+    const vmax = Math.max(1, pctl(todos, 0.985));
+    return base(tema, {
+      tooltip: tip(tema, {trigger: 'item', formatter: p => `<b>${diaMedio(k.dias[p.value[1]].f)} · ${pad(p.value[0])}:00</b><br>${nf0.format(p.value[2])} kWh (≈ ${nf0.format(p.value[2])} kW)`}),
+      grid: {left: 4, right: 8, top: 4, bottom: 46, containLabel: true},
+      xAxis: {type: 'category', data: HORAS, axisTick: {show: false}, axisLine: {show: false}, axisLabel: {color: tema.mut, fontSize: 10, interval: 1, formatter: v => `${v}h`}},
+      yAxis: {type: 'category', inverse: true, data: k.dias.map(d => diaCorto(d.f)), axisTick: {show: false}, axisLine: {show: false}, axisLabel: {color: tema.mut, fontSize: 10, interval: k.dias.length > 16 ? 1 : 0}},
+      visualMap: {min: 0, max: vmax, orient: 'horizontal', left: 'center', bottom: 0, itemHeight: 180, itemWidth: 10, calculable: false, text: [`${nf0.format(vmax)} kWh`, '0'], textStyle: {color: tema.mut, fontSize: 10.5}, inRange: {color: tema.heat}},
+      series: [{type: 'heatmap', data: datos, itemStyle: {borderColor: tema.card, borderWidth: 1, borderRadius: 2}, emphasis: {itemStyle: {borderColor: tema.ink, borderWidth: 1}}}],
+    });
+  },
+};
+const ALTO_HEAT = n => Math.max(230, Math.min(620, 70 + n * 16));
+
+/* Registro de gráficos: se destruyen al redibujar (sin fugas) y se ajustan al tamaño. */
+const VIVOS = new Set();
+const RO = new ResizeObserver(es => es.forEach(e => { const c = echarts.getInstanceByDom(e.target); if (c) c.resize(); }));
+function grafico(el, opt) {
+  const c = echarts.init(el, null, {renderer: 'canvas'});
+  c.setOption(opt);
+  c.on('click', p => { const id = p.data && p.data.nodoId; if (id) irA(id); });
+  VIVOS.add(c); RO.observe(el);
+  return c;
+}
+function limpiarGraficos() { VIVOS.forEach(c => { RO.unobserve(c.getDom()); c.dispose(); }); VIVOS.clear(); }
+/* Dibuja un "widget" descrito por su especificación (lo mismo que guardaría el producto). */
+function dibujar(el, sp, tema) {
+  const m = modelo(estado.cliente);
+  const nodo = m.nodos.get(sp.foco || estado.foco) || m.raiz;
+  const k = calc(m, nodo, periodo(m, sp.periodo || estado.periodo));
+  if (sp.tipo === 'heat') el.style.height = `${ALTO_HEAT(k.dias.length)}px`;
+  grafico(el, OPC[sp.tipo](k, sp, tema));
+  return k;
+}
+
+/* ---------- Chat simulado: respuestas de ejemplo calculadas con los datos reales ---------- */
+const INTENCIONES = {
+  noche: {pregunta: '¿Cuánto se consume de noche y en qué?', re: /noche|nocturn|madrugada|fuera de horario|consumo base/i},
+  extremos: {pregunta: '¿Qué día se consumió más y por qué?', re: /m[aá]s alto|mayor consumo|consumi[oó] m[aá]s|pico|m[aá]ximo|por qu[eé]/i},
+  semana: {pregunta: 'Compara días laborables con fines de semana', re: /fin(es)? de semana|laborable|s[aá]bado|domingo/i},
+  costo: {pregunta: '¿Cuánto cuesta cada tablero?', re: /cost|cuesta|precio|soles|d[oó]lar|plata|gasto|factura|pago/i},
+};
+const intencion = txt => (Object.entries(INTENCIONES).find(([, v]) => v.re.test(txt)) || [null])[0];
+function contribuciones(m, nodo, dA, dB) {
+  const dk = (n, d) => sumR(m.serie(n), d * 24, d * 24 + 24);
+  const out = nodo.hijos.map(h => ({nombre: h.nombre, dif: dk(h, dA) - dk(h, dB)}));
+  if (nodo.punto && nodo.hijos.length) {
+    const o = d => dk(nodo, d) - suma(nodo.hijos.map(h => dk(h, d)));
+    out.push({nombre: 'lo no desagregado (sin medidor propio)', dif: o(dA) - o(dB)});
+  }
+  return out.sort((x, y) => y.dif - x.dif);
+}
+function responder(intent, m, nodo, per) {
+  const k = calc(m, nodo, per), nom = nodo.nombre, t = m.c.tarifa;
+  const b0 = {foco: nodo.id, periodo: per.clave};
+  if (intent === 'noche') {
+    const h = k.hojas.slice().sort((x, y) => y.noche - x.noche), [a, b] = h;
+    const medido = suma(h.map(x => x.noche));
+    let tx = `De noche (22:00 a 08:00) ${nom} consume en promedio ${energiaTxt(k.nocheDia)} por día: el ${pct(k.nochePct)} de su energía ${per.fraseEn}.`;
+    if (a) tx += ` Lo que más consume de noche es ${a.nodo.nombre} (${energiaTxt(a.noche)} por noche)` + (b ? ` y luego ${b.nodo.nombre} (${energiaTxt(b.noche)}).` : '.');
+    if (h.length && medido < 0.75 * k.nocheDia) tx += ` Ojo: el ${pct(1 - medido / k.nocheDia)} del consumo nocturno no tiene medidor propio.`;
+    return {titulo: `De noche · ${nom}`, consulta: `el consumo nocturno de ${nom}`, texto: tx, spec: {...b0, tipo: 'noche', titulo: h.length ? 'Consumo nocturno por circuito' : 'Noche vs día'}};
+  }
+  if (intent === 'extremos') {
+    const c = contribuciones(m, nodo, k.max.d, k.min.d)[0];
+    let tx = `El día de mayor consumo fue el ${diaLargo(k.max.f)}, con ${energiaTxt(k.max.kwh)}` + (k.min.kwh > 0
+      ? `: ${pct(k.max.kwh / k.min.kwh - 1)} más que el más bajo (${diaLargo(k.min.f)}, ${energiaTxt(k.min.kwh)}).`
+      : `. El más bajo fue el ${diaLargo(k.min.f)}, sin consumo registrado.`);
+    if (c && c.dif > 0) tx += ` La diferencia la explica sobre todo ${c.nombre}: +${energiaTxt(c.dif)} de los ${energiaTxt(k.max.kwh - k.min.kwh)} de diferencia.`;
+    return {titulo: `Día más alto y más bajo · ${nom}`, consulta: `el consumo diario de ${nom}`, texto: tx, spec: {...b0, tipo: 'diario', extremos: true, titulo: 'Día más alto y más bajo'}};
+  }
+  if (intent === 'semana') {
+    if (!k.nFds || !k.nLab) return {titulo: 'Laborables vs fin de semana', consulta: 'los días de la semana', texto: 'El periodo elegido no tiene días laborables y de fin de semana para comparar.', spec: {...b0, tipo: 'curva', modo: 'semana', titulo: 'Laborables vs fin de semana'}};
+    const lab = k.kLab / k.nLab, fds = k.kFds / k.nFds;
+    const dif = k.curvaLab.map((v, h) => Math.abs((v || 0) - (k.curvaFds[h] || 0))), hM = dif.indexOf(Math.max(...dif));
+    const tx = `Un día laborable consume en promedio ${energiaTxt(lab)} y uno de fin de semana ${energiaTxt(fds)} (${fds < lab ? `${pct(1 - fds / lab)} menos` : `${pct(fds / lab - 1)} más`}). La mayor diferencia se da hacia las ${pad(hM)}:00: ${nf0.format(k.curvaLab[hM])} kW en laborables contra ${nf0.format(k.curvaFds[hM])} kW el fin de semana.`;
+    return {titulo: `Laborables vs fin de semana · ${nom}`, consulta: `los días laborables y los fines de semana de ${nom}`, texto: tx, spec: {...b0, tipo: 'curva', modo: 'semana', titulo: 'Laborables vs fin de semana'}};
+  }
+  if (intent === 'costo') {
+    if (!t.kwh) return {titulo: 'Costo', consulta: 'las tarifas', texto: 'No hay una tarifa registrada para calcular costos de esta sede.', spec: {...b0, tipo: 'diario'}};
+    const ps = partes(k);
+    let tx = `La energía de ${nom} costó ${dinero(k.costo, t.moneda)} ${per.fraseEn} (estimado ${t.nota.charAt(0).toLowerCase()}${t.nota.slice(1).replace(/\.$/, '')}).`;
+    if (ps.length) tx += ` ${ps[0].nombre} representa el ${pct(ps[0].kwh / k.total)}: ${dinero(ps[0].kwh * t.kwh, t.moneda)}.`;
+    return {titulo: `Costo · ${nom}`, consulta: `el costo de ${nom}`, texto: tx, spec: ps.length
+      ? {...b0, tipo: 'reparto', grafico: 'barras', metrica: 'costo', titulo: `Costo por ${nodo === m.raiz ? 'tablero' : 'circuito'} · ${nom}`}
+      : {...b0, tipo: 'diario', metrica: 'costo', titulo: `Costo por día · ${nom}`}};
+  }
+  return null;
+}
+let SEQ = 0;
+const logDe = () => (estado.chat[`${estado.variante}:${estado.cliente}`] ||= []);
+function preguntar(texto, intent, nodoId) {
+  const m = modelo(estado.cliente), per = periodo(m, estado.periodo);
+  const nodo = m.nodos.get(nodoId || estado.foco) || m.raiz;
+  const i = intent || intencion(texto || '');
+  const log = logDe();
+  log.push({rol: 'yo', texto: texto || INTENCIONES[i].pregunta});
+  if (!i) log.push({rol: 'ia', id: `m${++SEQ}`, sin: true, texto: 'En esta maqueta solo respondo las preguntas de ejemplo. En el producto la IA responde cualquier pregunta sobre tus datos y arma el gráfico en segundos.'});
+  else log.push({rol: 'ia', id: `m${++SEQ}`, animar: true, ...responder(i, m, nodo, per)});
+  render();
+}
+function msgHtml(msg, etiquetaFijar) {
+  if (msg.rol === 'yo') return `<div class="msg yo"><p>${esc(msg.texto)}</p></div>`;
+  if (msg.sin) return `<div class="msg ia"><p>${esc(msg.texto)}</p></div>`;
+  return `<div class="msg ia" data-msg="${msg.id}">
+    <p class="msg-estado" ${msg.animar ? '' : 'hidden'}>Consultando ${esc(msg.consulta)}…</p>
+    <div class="msg-cuerpo" ${msg.animar ? 'hidden' : ''}>
+      <h4>${esc(msg.titulo)}</h4>
+      <div class="chart" data-msg-chart="${msg.id}" role="img" aria-label="${esc(msg.titulo)}"></div>
+      <p class="msg-texto">${esc(msg.texto)}</p>
+      <button class="fijar" data-act="fijar" data-v="${msg.id}" data-k="fijar-${msg.id}" ${msg.fijado ? 'disabled' : ''}>${ICON.pin}${msg.fijado ? 'Fijado' : esc(etiquetaFijar)}</button>
+    </div></div>`;
+}
+/* Dibuja los gráficos del chat; las respuestas nuevas "llegan" por etapas, como con streaming. */
+function montarChat(raiz, tema) {
+  logDe().filter(x => x.rol === 'ia' && !x.sin).forEach(msg => {
+    const el = raiz.querySelector(`[data-msg="${msg.id}"]`); if (!el) return;
+    const cuerpo = el.querySelector('.msg-cuerpo'), est = el.querySelector('.msg-estado');
+    const mostrar = () => {
+      est.hidden = true; cuerpo.hidden = false;
+      dibujar(cuerpo.querySelector('.chart'), msg.spec, tema);
+      if (msg.animar) cuerpo.querySelector('.msg-texto').classList.add('entra');
+      msg.animar = false;
+    };
+    if (msg.animar && !REDUCIR) setTimeout(mostrar, 650); else mostrar();
+  });
+}
+function fijar(id) {
+  const msg = logDe().find(x => x.id === id); if (!msg || msg.fijado) return;
+  msg.fijado = true;
+  const sp = {...msg.spec, id: `f${id}~${++SEQ}`, fijado: true, nuevo: true};
+  if (!sp.fijo) delete sp.periodo;        // al fijarlo sigue el periodo del tablero (consulta viva), salvo que se pidiera uno
+  if (estado.variante === 'A') {          // va a la vista (sede, tablero o circuito) de la pregunta
+    sp.span = sp.span || 6;
+    layoutA(sp.foco || estado.foco).push(sp);
+    if (sp.foco) estado.foco = sp.foco;
+  } else if (estado.variante === 'D') {   // se arma "Mi dashboard" desde el chat
+    sp.span = sp.span || (sp.tipo === 'heat' || sp.tipo === 'diario' ? 12 : 6);
+    dashD().push(sp);
+    estado.D.aviso = sp.id;
+    render();
+    return;
+  } else (estado[estado.variante].extra[estado.cliente] ||= []).push(sp);
+  render();
+  const w = document.querySelector(`[data-w="${sp.id}"]`);
+  if (w) { w.scrollIntoView({behavior: REDUCIR ? 'auto' : 'smooth', block: 'center'}); }
+  sp.nuevo = false;
+}
+
+/* ---------- Estado (en memoria: el prototipo no guarda nada) y URL compartible ---------- */
+const Q = new URLSearchParams(location.search);
+const estado = {
+  variante: VARIANTES[Q.get('variant')] ? Q.get('variant') : 'D',
+  cliente: D && D.clientes[Q.get('cliente')] ? Q.get('cliente') : (D ? Object.keys(D.clientes)[0] : null),
+  periodo: PERIODOS[Q.get('periodo')] ? Q.get('periodo') : 'mes',
+  foco: Q.get('foco') || 'sede',
+  comparar: true,
+  chat: {},
+  A: {extra: {}, chat: false, editando: null, lay: {}, paleta: false, anim: null},
+  B: {extra: {}},
+  C: {extra: {}, q: ''},
+  D: {dash: {}, vista: Q.get('vista') === 'dashboard' ? 'dashboard' : 'chat', aviso: null},
+};
+function irA(id) {
+  const m = modelo(estado.cliente);
+  if (!m.nodos.has(id) || id === estado.foco) return;
+  const prof = n => ruta(n).length + (n.fuera ? 1 : 0);
+  estado.A.anim = prof(m.nodos.get(id)) >= prof(m.nodos.get(estado.foco) || m.raiz) ? 'entra' : 'sale';
+  estado.foco = id; estado.A.editando = null; estado.A.paleta = false;
+  render();
+  if (estado.variante === 'C') window.scrollTo({top: 0, behavior: REDUCIR ? 'auto' : 'smooth'});
+  if (estado.variante === 'A') window.scrollTo(0, 0);
+}
+function syncURL() {
+  const p = new URLSearchParams({variant: estado.variante, cliente: estado.cliente, periodo: estado.periodo});
+  if (estado.foco !== 'sede') p.set('foco', estado.foco);
+  try { history.replaceState(null, '', `${location.pathname}?${p}`); } catch (e) { /* file:// en algunos navegadores */ }
+}
+const VISTAS = {};
+function render() {
+  const enfocado = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.k : null;
+  const y = window.scrollY;
+  const m = modelo(estado.cliente);
+  if (!m.nodos.has(estado.foco)) estado.foco = 'sede';
+  const ctx = {m, per: periodo(m, estado.periodo), nodo: m.nodos.get(estado.foco)};
+  ctx.k = calc(m, ctx.nodo, ctx.per);
+  limpiarGraficos();
+  document.body.className = `v-${estado.variante}`;
+  const app = $('#app');
+  app.innerHTML = VISTAS[estado.variante].html(ctx);
+  VISTAS[estado.variante].montar(app, ctx);
+  renderProto();
+  syncURL();
+  window.scrollTo(0, y);
+  if (enfocado) { const el = document.querySelector(`[data-k="${CSS.escape(enfocado)}"]`); if (el) el.focus({preventScroll: true}); }
+}
+function renderProto() {
+  const m = modelo(estado.cliente);
+  $('#proto').innerHTML = `<span class="tag">PROTOTIPO</span>
+    <button data-p="prev" data-k="p-prev" aria-label="Variante anterior (tecla ←)">◀</button>
+    <span class="var" aria-live="polite"><b>${estado.variante}</b> · ${VARIANTES[estado.variante]}</span>
+    <button data-p="next" data-k="p-next" aria-label="Variante siguiente (tecla →)">▶</button>
+    <span class="sep" aria-hidden="true"></span>
+    ${Object.entries(D.clientes).map(([c, v]) => `<button data-p="cliente" data-v="${c}" data-k="p-${c}" aria-pressed="${c === estado.cliente}">${esc(v.empresa)}</button>`).join('')}
+    <span class="sep" aria-hidden="true"></span>
+    <span class="nota">datos reales al ${diaMedio(fechaLima(m.hasta))} ${horaLima(m.hasta)} · chat simulado</span>`;
+}
+function cambiarVariante(paso) {
+  const ks = Object.keys(VARIANTES), i = ks.indexOf(estado.variante);
+  estado.variante = ks[(i + paso + ks.length) % ks.length];
+  render(); window.scrollTo(0, 0);
+}
+</script>
+<script>
+'use strict';
+/* =====================================================================
+   VARIANTES: cada una arma su propia estructura sobre el núcleo de arriba.
+   ===================================================================== */
+const kDe = sp => {
+  const m = modelo(estado.cliente);
+  return calc(m, m.nodos.get(sp.foco || estado.foco) || m.raiz, periodo(m, sp.periodo || estado.periodo));
+};
+const extraDe = v => (estado[v].extra[estado.cliente] ||= []);
+const quitarDe = (lista, id) => { const i = lista.findIndex(x => x.id === id); if (i >= 0) lista.splice(i, 1); return i >= 0; };
+const etiquetaCliente = c => `${c.empresa} · ${c.sede}`;
+const chipsHtml = p => Object.entries(INTENCIONES).map(([i, v]) =>
+  `<button class="chip" data-act="chip" data-v="${i}" data-k="${p}-chip-${i}">${esc(v.pregunta)}</button>`).join('');
+const botonesPeriodo = (per, p) => Object.entries(PERIODOS).map(([v, t]) =>
+  `<button data-act="periodo" data-v="${v}" data-k="${p}-per-${v}" aria-pressed="${per.clave === v}">${t}</button>`).join('');
+function dineroPartes(x, mon) {
+  const a = Math.abs(x);
+  if (a >= 1e6) return [`${mon} ${nf2.format(x / 1e6)}`, 'millones'];
+  if (a >= 1e4) return [`${mon} ${nf1.format(x / 1e3)}`, 'mil'];
+  return [`${mon} ${nf0.format(x)}`, ''];
+}
+function todosNodos(n) { return [n, ...n.hijos.flatMap(todosNodos)]; }
+const nivelVisible = n => n.fuera ? n.nivel - 1 : n.nivel;
+function opcionesNodos(m, sel, primera = '') {
+  const op = n => `<option value="${n.id}"${n.id === sel ? ' selected' : ''}>${'\u00a0\u00a0\u00a0'.repeat(nivelVisible(n))}${esc(n.nombre)}</option>`;
+  let h = primera + todosNodos(m.raiz).map(op).join('');
+  if (m.c.fuera.length) h += `<optgroup label="Fuera del total">${m.c.fuera.flatMap(todosNodos).map(op).join('')}</optgroup>`;
+  return h;
+}
+function migasHtml(m, nodo) {
+  const r = ruta(nodo), pasos = nodo.fuera ? [m.raiz, ...r] : r;
+  if (pasos.length < 2) return '';
+  return pasos.map((n, i) => i === pasos.length - 1
+    ? `<span aria-current="page">${esc(n.nombre)}</span>`
+    : `<button data-act="foco" data-v="${n.id}" data-k="miga-${n.id}">${esc(n.nombre)}</button><span aria-hidden="true">›</span>`).join('');
+}
+const montarLista = (app, lista, tema) => lista.forEach(({id, sp}) => {
+  const el = app.querySelector(`[data-chart="${id}"]`);
+  if (el) dibujar(el, sp, tema);
+});
+</script>
+<script>
+'use strict';
+/* ------------------------- A · TABLERO -------------------------
+   KPIs arriba, grilla de gráficos que el cliente edita sin escribir
+   (métrica, gráfico, de qué tablero, periodo, ancho) y chat lateral
+   cuyas respuestas se fijan como gráficos vivos. */
+const A_TIPOS = {
+  diario: {nombre: 'Consumo por día', graficos: {bar: 'Barras', line: 'Línea', area: 'Área'}, metrica: true},
+  reparto: {nombre: '¿Dónde se va la energía?', graficos: {dona: 'Dona', barras: 'Barras'}, metrica: true},
+  curva: {nombre: 'Un día típico, hora por hora', modos: {prom: 'Promedio y días altos', semana: 'Laborables y fin de semana'}},
+  ranking: {nombre: 'Circuitos que más consumen', ns: {5: 'Top 5', 8: 'Top 8', 12: 'Top 12'}, metrica: true},
+  noche: {nombre: 'Consumo nocturno por circuito'},
+  nochedia: {nombre: 'Noche y día'},
+  heat: {nombre: 'Hora por hora, día por día'},
+};
+/* Vista por niveles (matrioska): cada nivel abre con pocos gráficos y el
+   cliente agrega, quita, edita y reordena los suyos. El diseño se guarda
+   por cada sede, tablero o circuito (en memoria: el prototipo no guarda). */
+const A_PLANTILLA = {
+  sede: [{tipo: 'diario', grafico: 'bar', span: 8}, {tipo: 'reparto', grafico: 'dona', span: 4}],
+  tablero: [{tipo: 'diario', grafico: 'bar', span: 7}, {tipo: 'curva', modo: 'prom', span: 5}],
+  punto: [{tipo: 'diario', grafico: 'bar', span: 7}, {tipo: 'curva', modo: 'prom', span: 5}, {tipo: 'heat', span: 12}],
+};
+const A_SPAN = {diario: 8, reparto: 4, curva: 6, ranking: 6, nochedia: 6, noche: 6, heat: 12};
+const A_PALETA = [
+  ['diario', 'Consumo por día', 'Barras día a día, con el periodo anterior punteado.'],
+  ['reparto', '¿Dónde se va la energía?', 'Dona con lo que pesa cada parte.'],
+  ['curva', 'Un día típico', 'kW promedio por hora y los días altos.'],
+  ['ranking', 'Circuitos que más consumen', 'De mayor a menor consumo.'],
+  ['nochedia', 'Noche y día', 'Cuánto de cada día se va de noche.'],
+  ['noche', 'Consumo nocturno por circuito', 'Qué queda encendido de noche.'],
+  ['heat', 'Mapa de calor', 'Hora por hora, día por día.'],
+];
+const nivelA = (m, n) => n === m.raiz ? 'sede' : (n.hijos.length ? 'tablero' : 'punto');
+const ETQ_NIVEL = ['Sede', 'Tablero', 'Circuito'];
+const pasosA = (m, n) => n.fuera ? [m.raiz, ...ruta(n)] : ruta(n);
+function layoutA(id) {
+  const m = modelo(estado.cliente), n = m.nodos.get(id) || m.raiz, clave = `${estado.cliente}:${n.id}`;
+  return (estado.A.lay[clave] ||= A_PLANTILLA[nivelA(m, n)].map((w, i) => ({...w, id: `w${i}-${w.tipo}`})));
+}
+const widgetsA = () => layoutA(estado.foco);
+// Lista que se reordena al arrastrar: la vista actual en A, "Mi dashboard" en D.
+const listaArrastre = () => estado.variante === 'D' ? dashD() : widgetsA();
+function moverA(id, destino, antes) {
+  const L = listaArrastre(), i = L.findIndex(x => x.id === id);
+  if (i < 0 || id === destino) return;
+  const [w] = L.splice(i, 1);
+  let j = L.findIndex(x => x.id === destino);
+  j = j < 0 ? L.length : j + (antes ? 0 : 1);
+  L.splice(j, 0, w);
+  render();
+}
+function moverPaso(id, paso) {
+  const L = listaArrastre(), i = L.findIndex(x => x.id === id), j = i + paso;
+  if (i < 0 || j < 0 || j >= L.length) return;
+  [L[i], L[j]] = [L[j], L[i]];
+  render();
+}
+
+function subA(sp, k) {
+  const p = [];
+  if (sp.foco && sp.foco !== estado.foco) p.push(k.nodo.nombre);
+  p.push(sp.periodo ? `${PERIODOS[sp.periodo]} (${k.per.rango})` : k.per.rango);
+  if (sp.metrica === 'costo' && k.m.c.tarifa.kwh) p.push(`costo estimado en ${k.m.c.tarifa.moneda}`);
+  if (sp.tipo === 'diario' && estado.comparar && k.per.okPrev) p.push(`punteado: ${k.per.fraseComp}`);
+  if (sp.tipo === 'curva') p.push(sp.modo === 'semana' ? 'kW promedio por hora' : 'kW por hora · franja: hora punta');
+  if (sp.tipo === 'heat') p.push('kWh en cada hora');
+  return p.join(' · ');
+}
+function editorA(sp, m) {
+  const T = A_TIPOS[sp.tipo] || {};
+  const sel = (id, et, opciones, actual) => `<label>${et}<select data-act="w-campo" data-v="${sp.id}" data-campo="${id}" data-k="c-${sp.id}-${id}">${
+    Object.entries(opciones).map(([v, t]) => `<option value="${v}"${String(actual ?? '') === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
+  let h = '';
+  if (T.metrica && m.c.tarifa.kwh) h += sel('metrica', 'Muestra', {kwh: 'Energía (kWh)', costo: `Costo (${m.c.tarifa.moneda})`}, sp.metrica || 'kwh');
+  if (T.graficos) h += sel('grafico', 'Gráfico', T.graficos, sp.grafico || Object.keys(T.graficos)[0]);
+  if (T.modos) h += sel('modo', 'Vista', T.modos, sp.modo || 'prom');
+  if (T.ns) h += sel('n', 'Cuántos', T.ns, String(sp.n || 8));
+  h += `<label>De<select data-act="w-campo" data-v="${sp.id}" data-campo="foco" data-k="c-${sp.id}-foco">${
+    opcionesNodos(m, sp.foco || '', '<option value="">Lo elegido arriba</option>')}</select></label>`;
+  h += sel('periodo', 'Periodo', {'': 'El del tablero', ...PERIODOS}, sp.periodo || '');
+  h += sel('span', 'Ancho', {4: 'Un tercio', 6: 'La mitad', 8: 'Dos tercios', 12: 'Completo'}, String(sp.span || 6));
+  h += `<div class="a-mover">Posición<div><button data-act="a-mover" data-v="${sp.id}" data-paso="-1" data-k="mv-${sp.id}-a">← Antes</button><button data-act="a-mover" data-v="${sp.id}" data-paso="1" data-k="mv-${sp.id}-d">Después →</button></div></div>`;
+  return `<div class="a-w-edit" id="ed-${sp.id}">${h}</div>`;
+}
+function leyendaA(k, sp) {
+  const V = valorDe(k, sp), items = partes(k), tot = suma(items.map(x => x.kwh)) || 1;
+  return `<ul class="a-ley">${items.map((it, i) => {
+    const puede = it.nodo && it.nodo !== k.nodo;
+    return `<li><button ${puede ? `data-act="foco" data-v="${it.id}" data-k="ley-${sp.id}-${it.id}" title="Ver el detalle de ${esc(it.nombre)}"` : 'disabled title="Energía de la llave general que no pasa por ningún circuito medido"'}>`
+      + `<i style="background:${colorParte(k, it, i, TEMAS.A)}"></i><span>${esc(it.nombre)}</span>`
+      + `<span class="v num">${esc(V.txt(V.f(it.kwh)))}</span><span class="p num">${pct(it.kwh / tot)}</span></button></li>`;
+  }).join('')}</ul>`;
+}
+function widgetA(sp, m) {
+  const k = kDe(sp), T = A_TIPOS[sp.tipo] || {nombre: sp.tipo}, ed = estado.A.editando === sp.id;
+  const titulo = sp.titulo || T.nombre;
+  const vacio = (sp.tipo === 'reparto' && !partes(k).length) || (sp.tipo === 'ranking' && !k.hojas.length);
+  let cuerpo;
+  if (vacio) cuerpo = `<p class="a-vacio">${esc(k.nodo.nombre)} no tiene circuitos medidos debajo. Elige un tablero o la sede en «De» (lápiz).</p>`;
+  else if (sp.tipo === 'reparto') cuerpo = `<div class="a-rep"><div class="chart bajo" data-chart="${sp.id}" role="img" aria-label="${esc(titulo)}"></div>${leyendaA(k, sp)}</div>`;
+  else cuerpo = `<div class="chart${sp.tipo === 'diario' ? ' alto' : ''}" data-chart="${sp.id}" role="img" aria-label="${esc(titulo)}"></div>`;
+  const nota = sp.tipo === 'reparto' ? notas(k, 'rep') : sp.tipo === 'ranking' ? notas(k, 'rank') : [];
+  return `<section class="a-w${sp.nuevo ? ' nuevo' : ''}" style="--span:${sp.span || 6}" data-w="${sp.id}" aria-labelledby="t-${sp.id}">
+    <div class="a-w-h"><button class="a-asa" draggable="true" data-act="asa" data-v="${sp.id}" data-k="asa-${sp.id}" aria-label="Mover «${esc(titulo)}»: arrástralo o usa las flechas del teclado" title="Arrastra para mover">⠿</button>
+      <div class="a-w-t"><h3 id="t-${sp.id}">${esc(titulo)}${sp.fijado ? `<span class="a-pin-tag">${ICON.pin}desde el chat</span>` : ''}</h3><p>${esc(subA(sp, k))}</p></div>
+      <div class="a-w-acc">
+        <button class="a-ico" data-act="editar" data-v="${sp.id}" data-k="ed-${sp.id}" aria-expanded="${ed}"${ed ? ` aria-controls="ed-${sp.id}"` : ''} aria-label="Editar «${esc(titulo)}»" title="Editar">${ICON.lapiz}</button>
+        <button class="a-ico" data-act="quitar" data-v="${sp.id}" data-k="rm-${sp.id}" aria-label="Quitar «${esc(titulo)}» del tablero" title="Quitar">${ICON.x}</button>
+      </div></div>
+    ${ed ? editorA(sp, m) : ''}
+    <div class="a-w-b">${cuerpo}</div>
+    ${nota.length ? `<div class="a-w-pie">${notasHtml(nota)}</div>` : ''}
+  </section>`;
+}
+function kpisA(k) {
+  const t = k.m.c.tarifa, T = TEMAS.A, contra = k.per.fraseComp;
+  const vs = k.per.okPrev ? `<span>vs ${esc(contra)}</span>` : '';
+  const card = (et, val, u, fila, exp, extra = '') => `<article class="a-kpi"><span class="a-et">${esc(et)}</span>${extra}
+    <p class="a-kpi-val num">${esc(val)}${u ? `<span>${esc(u)}</span>` : ''}</p><div class="a-kpi-fila">${fila}</div><p class="a-kpi-exp">${exp}</p></article>`;
+  const [ev, eu] = energia(k.total), [nv, nu] = energia(k.nocheDia);
+  const out = [card('Consumo', ev, eu, deltaHtml(k.delta, contra) + vs,
+    `${esc(energiaTxt(k.prom))} por día en promedio${k.pProm ? `; antes, ${esc(energiaTxt(k.pProm))}` : ''}.`,
+    spark(k.dias.map(d => d.kwh), T.acc))];
+  if (k.costo != null) {
+    const [cv, cu] = dineroPartes(k.costo, t.moneda);
+    out.push(card('Costo estimado', cv, cu, deltaHtml(k.delta, contra) + vs, esc(t.nota)));
+  } else out.push(card('Costo estimado', '—', '', '<span class="delta neutro">sin tarifa</span>', 'No hay tarifa registrada para esta sede.'));
+  out.push(card('Consumo base nocturno', nv, `${nu} por noche`, deltaHtml(k.deltaNoche, contra) + vs,
+    `El ${pct(k.nochePct)} del consumo ocurre entre las 22:00 y las 08:00.`, spark(k.dias.map(d => d.noche), T.noche)));
+  out.push(card('En hora punta', pct(k.puntaPct, 1), '', (k.pPuntaPct != null ? deltaPP(k.puntaPct - k.pPuntaPct, contra) + vs : ''),
+    'Lunes a viernes de 18:00 a 23:00: el tramo en que la energía y la potencia suelen costar más.'));
+  return out.join('');
+}
+function chatA(m, nodo) {
+  const log = logDe();
+  return `<aside class="a-chat" aria-label="Preguntar a ZEIA">
+    <div class="a-chat-h"><div><h2>Pregúntale a ZEIA</h2><p>Responde con un gráfico que puedes agregar al tablero.</p></div>
+      <button class="a-ico" data-act="chat" data-k="chat-cerrar" aria-label="Cerrar el chat">${ICON.x}</button></div>
+    <div class="a-chat-log" aria-live="polite">${log.length ? log.map(x => msgHtml(x, 'Agregar al tablero')).join('')
+      : `<p class="a-chat-intro">Pregunta sobre ${esc(nodo.nombre)}. La respuesta usa lo elegido en el tablero: ${esc(PERIODOS[estado.periodo].toLowerCase())}.</p>`}</div>
+    <div class="a-chat-pie">
+      <div class="chips">${chipsHtml('a')}</div>
+      <form data-form="preguntar"><label class="sr" for="a-q">Tu pregunta</label><input id="a-q" data-k="a-q" autocomplete="off" placeholder="Escribe tu pregunta…"><button type="submit">Enviar</button></form>
+      <p class="a-chat-nota">Maqueta: responde 4 preguntas de ejemplo calculadas con los datos reales. En el producto, la IA responde cualquier pregunta.</p>
+    </div></aside>`;
+}
+function rutaA(m, nodo) {
+  const pasos = pasosA(m, nodo), sep = '<span class="a-sep" aria-hidden="true">›</span>';
+  let h = pasos.map((n, i) => i === pasos.length - 1
+    ? `<div class="a-paso actual" aria-current="page"><small>${ETQ_NIVEL[Math.min(i, 2)]}</small><b>${esc(n.nombre)}</b></div>`
+    : `<button class="a-paso" data-act="foco" data-v="${n.id}" data-k="paso-${n.id}"><small>${ETQ_NIVEL[Math.min(i, 2)]}</small><b>${esc(n.nombre)}</b></button>`).join(sep);
+  if (nodo.hijos.length) h += `${sep}<div class="a-paso fantasma"><small>${ETQ_NIVEL[Math.min(pasos.length, 2)]}</small><b>Elige uno abajo ↓</b></div>`;
+  return h;
+}
+function tarjetaHijo(m, n, per, padreTot, i, padre) {
+  const k = calc(m, n, per), share = padreTot ? k.total / padreTot : null;
+  const color = padre === m.raiz && !n.fuera ? m.colorDe(n, TEMAS.A.pal) : TEMAS.A.pal[i % TEMAS.A.pal.length];
+  let est = `Lecturas recibidas: ${pct(k.cob)}`, cls = '';
+  const quieto = k.prom < 0.1 && k.cob > 0.5;              // < 0.1 kWh/día con lecturas: contador sin avance
+  if (quieto) { est = 'Llegan lecturas, pero el contador no avanza'; cls = 'alerta'; }
+  else if (k.otros != null && k.otros < -0.01 * k.total) { est = `Sus circuitos suman ${pct(-k.otros / k.total)} más que su llave`; cls = 'aviso'; }
+  else if (k.cob < 0.9) { est = `Lecturas recibidas: ${pct(k.cob)} (con huecos)`; cls = 'aviso'; }
+  const [v, u] = energia(k.total);
+  return `<li><button class="a-hijo" data-act="foco" data-v="${n.id}" data-k="hijo-${n.id}">
+    <span class="a-hijo-n">${esc(n.nombre)}</span>
+    <span class="a-hijo-v num">${esc(v)}<small>${esc(u)}</small></span>
+    ${share != null ? `<span class="a-hijo-barra" aria-hidden="true"><i style="width:${Math.max(1, Math.min(100, share * 100)).toFixed(1)}%;background:${color}"></i></span>` : ''}
+    <span class="a-hijo-fila">${share != null ? `<span>${pct(share)} de ${esc(padre.nombre)}</span>` : ''}${deltaHtml(quieto || (k.pProm != null && k.pProm < 0.1) ? null : k.delta, per.fraseComp)}</span>
+    ${spark(k.dias.map(d => d.kwh), color, 200, 30)}
+    <span class="a-hijo-est ${cls}">${esc(est)}</span>
+    <span class="a-hijo-ir">${n.hijos.length > 1 ? `Ver sus ${n.hijos.length} circuitos →` : n.hijos.length ? 'Ver su circuito →' : 'Ver detalle →'}</span></button></li>`;
+}
+function tarjetaOtros(k, nodo) {
+  if (k.otros == null || k.otros <= 0.005 * k.total) return '';
+  const [v, u] = energia(k.otros), share = k.otros / k.total;
+  return `<li><div class="a-hijo otros"><span class="a-hijo-n">Otros no desagregados</span><span class="a-hijo-v num">${esc(v)}<small>${esc(u)}</small></span>
+    <span class="a-hijo-barra" aria-hidden="true"><i style="width:${(share * 100).toFixed(1)}%;background:${TEMAS.A.otros}"></i></span>
+    <span class="a-hijo-fila"><span>${pct(share)} de ${esc(nodo.nombre)}</span></span>
+    <span class="a-hijo-txt">Lo que marca la llave general y no pasa por ningún ${nodo === k.m.raiz ? 'tablero' : 'circuito'} medido. No tiene más detalle.</span></div></li>`;
+}
+function hijosA(m, nodo, per, k) {
+  const fuera = nodo === m.raiz ? m.c.fuera : [];
+  if (!nodo.hijos.length && !fuera.length) return '';
+  const lista = nodo.hijos.slice().sort((a, b) => calc(m, b, per).total - calc(m, a, per).total);
+  const raiz = nodo === m.raiz;
+  return `<section class="a-w a-sec-hijos" aria-labelledby="h-hijos"><div class="a-w-h"><div class="a-w-t">
+      <h3 id="h-hijos">${raiz ? 'Tableros' : 'Circuitos'} de ${esc(nodo.nombre)}</h3>
+      <p>${esc(per.rango)} · ${raiz ? 'Toca un tablero para ver sus circuitos.' : 'Toca un circuito para ver su detalle.'}</p></div></div>
+    <ul class="a-hijos">${lista.map((n, i) => tarjetaHijo(m, n, per, k.total, i, nodo)).join('')}${tarjetaOtros(k, nodo)}</ul>
+    ${fuera.length ? `<p class="a-fuera">Fuera del total (criterio del cliente)</p><ul class="a-hijos">${fuera.map((n, i) => tarjetaHijo(m, n, per, 0, i + 2, nodo)).join('')}</ul>` : ''}
+  </section>`;
+}
+function agregarA(nodo) {
+  const tipos = A_PALETA.filter(([t]) => nodo.hijos.length || !['reparto', 'ranking', 'noche'].includes(t));
+  return `<div class="a-agregar">
+    <button class="a-add" data-act="a-add" data-k="a-add" aria-expanded="${!!estado.A.paleta}">+ Agregar gráfico</button>
+    <button class="a-reset" data-act="a-reset" data-k="a-reset">Restablecer esta vista</button>
+    <span class="a-agregar-nota">Cada sede, tablero y circuito guarda su propio orden de gráficos.</span>
+    ${estado.A.paleta ? `<div class="a-paleta" role="group" aria-label="Elige un gráfico">${tipos.map(([t, n, d]) =>
+      `<button data-act="a-nuevo" data-v="${t}" data-k="nuevo-${t}">${esc(n)}<small>${esc(d)}</small></button>`).join('')}</div>` : ''}
+  </div>`;
+}
+function subTituloA(m, nodo, per, k) {
+  let s = `${per.nombre} · ${per.rango}${per.okPrev ? ` · comparado con ${per.fraseComp}` : ''}`;
+  if (nodo.padre) s += ` · ${pct(k.total / (calc(m, nodo.padre, per).total || 1))} de ${nodo.padre.nombre}`;
+  else if (nodo.fuera) s += ' · fuera del total de la sede';
+  return s;
+}
+VISTAS.A = {
+  html({m, per, nodo, k}) {
+    const c = m.c;
+    return `<div class="a-shell${estado.A.chat ? ' con-chat' : ''}"><div class="a-col">
+      <header class="a-top">
+        <div class="a-marca"><span class="a-logo" aria-hidden="true">Z</span><div><b>ZEIA</b><small>Monitoreo de consumo</small></div></div>
+        <div class="a-cli"><small>Cliente</small><b>${esc(etiquetaCliente(c))}</b></div>
+        <nav class="a-mod" aria-label="Módulos">
+          <button aria-current="page" data-k="mod-e">${ICON.rayo}Energía</button>
+          <button disabled>${ICON.termo}Ambiental<i>pronto</i></button>
+          <button disabled>${ICON.gota}Agua<i>pronto</i></button>
+        </nav>
+        <p class="a-vivo"><span class="pulso" aria-hidden="true"></span><span>Actualizado ${horaLima(m.hasta)}<span class="largo"> · ${esc(diaMedio(fechaLima(m.hasta)))}</span></span></p>
+        <button class="a-btn-chat" data-act="chat" data-k="chat-abrir" aria-expanded="${estado.A.chat}">${ICON.chat}Preguntar</button>
+      </header>
+      <main class="a-main${estado.A.anim ? ` ${estado.A.anim}` : ''}">
+        <nav class="a-ruta" aria-label="Dónde estás">${rutaA(m, nodo)}</nav>
+        <div class="a-titulo"><div><h1>${esc(nodo.nombre)}</h1><p>${esc(subTituloA(m, nodo, per, k))}</p></div>
+          <div class="a-filtros">
+            <div class="seg" role="group" aria-label="Periodo">${botonesPeriodo(per, 'a')}</div>
+            <label class="a-check"><input type="checkbox" data-act="comparar" data-k="comparar"${estado.comparar ? ' checked' : ''}>Comparar con el anterior</label>
+          </div></div>
+        <section class="a-kpis" aria-label="Indicadores">${kpisA(k)}</section>
+        <div class="a-notas-glob">${notasHtml([...notas(k, 'cob'), ...notas(k, 'rep')])}</div>
+        ${hijosA(m, nodo, per, k)}
+        <div class="a-grid-h"><h2>Gráficos</h2><p>Arrastra ⠿ para reordenarlos; con el lápiz cambias qué muestran.</p></div>
+        <div class="a-grid">${widgetsA().map(sp => widgetA(sp, m)).join('')}</div>
+        ${agregarA(nodo)}
+      </main></div>
+      ${estado.A.chat ? chatA(m, nodo) : ''}
+    </div>`;
+  },
+  montar(app) {
+    document.body.classList.toggle('chat-abierto', !!estado.A.chat);
+    estado.A.anim = null;
+    widgetsA().forEach(sp => { const el = app.querySelector(`[data-chart="${sp.id}"]`); if (el) dibujar(el, sp, TEMAS.A); });
+    if (estado.A.chat) { montarChat(app, TEMAS.A); const log = $('.a-chat-log', app); log.scrollTop = log.scrollHeight; }
+  },
+};
+</script>
+<script>
+'use strict';
+/* ------------------------- B · INFORME VIVO -------------------------
+   El reporte mensual del cliente convertido en página viva: titulares con
+   la conclusión, una cifra, el gráfico y una sugerencia por sección. */
+VISTAS.B = {
+  charts: [],
+  html({m, per, nodo, k}) {
+    const c = m.c, t = c.tarifa, T = TEMAS.B, ch = this.charts = [];
+    const fig = (id, sp, cls = '', h = 0) => { ch.push({id, sp}); return `<div class="chart ${cls}" data-chart="${id}"${h ? ` style="height:${h}px"` : ''} role="img" aria-label="${esc(sp.titulo || '')}"></div>`; };
+    const ps = partes(k), totP = suma(ps.map(x => x.kwh)) || 1;
+    const top = ps.slice().sort((a, b) => b.kwh - a.kwh)[0], otros = ps.find(x => x.otros);
+    const variacion = k.prom ? (k.max.kwh - k.min.kwh) / k.prom : 0;
+    const contrib = contribuciones(m, nodo, k.max.d, k.min.d)[0];
+    const hn = k.hojas.slice().sort((a, b) => b.noche - a.noche)[0];
+    const hPico = k.curva.indexOf(Math.max(...k.curva));
+    const comp = estado.comparar && per.okPrev;
+    const secs = [];
+    secs.push({id: 'b-s1', nav: 'Consumo', kicker: 'Consumo',
+      h3: variacion > 0.15 ? `El ${diaLargo(k.max.f)} fue el día de mayor consumo` : 'Un consumo parejo, día tras día',
+      cuerpo: `<p class="b-cifra num">${energia(k.total)[0]}<small>${energia(k.total)[1]} ${esc(per.fraseEn)}</small>${deltaHtml(k.delta, per.fraseComp)}</p>
+        <figure class="b-fig">${fig('b-diario', {tipo: 'diario', extremos: true, titulo: 'Consumo por día'}, 'alto')}
+          <figcaption class="b-cap">Cada barra es un día; van marcados el más alto y el más bajo${comp ? `. La línea punteada es ${esc(per.fraseComp)}` : ''}. Promedio: ${esc(energiaTxt(k.prom))} por día.</figcaption></figure>
+        <p class="b-sug"><b>Sugerencia</b><span>Entre el día más alto y el más bajo hay ${esc(energiaTxt(k.max.kwh - k.min.kwh))} de diferencia${contrib && contrib.dif > 0 ? `; la mayor parte viene de ${esc(contrib.nombre)} (+${esc(energiaTxt(contrib.dif))})` : ''}. Vale revisar qué cambió ese día.</span></p>`});
+    if (ps.length) secs.push({id: 'b-s2', nav: 'Reparto', kicker: 'Reparto',
+      h3: otros && otros === top ? `El ${pct(otros.kwh / totP)} del consumo no tiene medidor propio` : `${top.nombre} concentra el ${pct(top.kwh / totP)} del consumo`,
+      cuerpo: `<figure class="b-fig">${fig('b-rep', {tipo: 'reparto100', titulo: 'Reparto del consumo'}, '', 64)}
+          <ul class="b-lista">${ps.map((it, i) => `<li><i style="background:${colorParte(k, it, i, T)}"></i><span>${it.nodo
+            ? `<button class="b-link" data-act="foco" data-v="${it.id}" data-k="bl-${it.id}">${esc(it.nombre)}</button>` : esc(it.nombre)}</span>
+            <span class="v num">${esc(energiaTxt(it.kwh))}<small>${pct(it.kwh / totP)}</small></span></li>`).join('')}</ul>
+          <figcaption class="b-cap">${nodo.punto ? '«Otros no desagregados» es lo que marca la llave general y no pasa por ningún circuito medido. ' : 'Tableros que forman el total. '}Toca un nombre para ver su detalle.</figcaption></figure>
+        <p class="b-sug"><b>Sugerencia</b><span>${otros && otros.kwh / totP > 0.25
+          ? `Casi el ${pct(otros.kwh / totP)} de la energía no se puede atribuir a ningún tablero medido: medir los circuitos grandes de ese resto mostraría dónde actuar.`
+          : `Empiece por ${esc(top.nombre)}: cualquier mejora ahí pesa el ${pct(top.kwh / totP)} del total.`}</span></p>`});
+    secs.push({id: 'b-s3', nav: 'De noche', kicker: 'Consumo base',
+      h3: `De noche se consume el ${pct(k.nochePct)} de la energía`,
+      cuerpo: `<p class="b-cifra num">${energia(k.nocheDia)[0]}<small>${energia(k.nocheDia)[1]} cada noche, de 22:00 a 08:00</small>${deltaHtml(k.deltaNoche, per.fraseComp)}</p>
+        <div class="${k.hojas.length ? 'b-dos' : ''}">
+          <figure class="b-fig">${fig('b-nd', {tipo: 'nochedia', titulo: 'Noche y día'}, 'bajo')}<figcaption class="b-cap">Cada barra es un día; en oscuro, lo de la noche.</figcaption></figure>
+          ${k.hojas.length ? `<figure class="b-fig">${fig('b-nc', {tipo: 'noche', titulo: 'Consumo nocturno por circuito'}, 'bajo')}<figcaption class="b-cap">Promedio por noche de cada circuito medido.</figcaption></figure>` : ''}
+        </div>
+        ${hn && hn.noche > 0 ? `<p class="b-sug"><b>Pregunta</b><span>${esc(hn.nodo.nombre)} gasta ${esc(energiaTxt(hn.noche))} cada noche${t.kwh ? ` (unos ${esc(dinero(hn.noche * 30 * t.kwh, t.moneda))} al mes)` : ''}. ¿Tiene que funcionar toda la noche? Si no, es el primer candidato para apagar o programar.</span></p>` : ''}`});
+    secs.push({id: 'b-s4', nav: 'Día típico', kicker: 'Día típico',
+      h3: `La demanda llega a su punto más alto hacia las ${pad(hPico)}:00`,
+      cuerpo: `<figure class="b-fig">${fig('b-curva', {tipo: 'curva', titulo: 'Un día típico'})}<figcaption class="b-cap">Promedio de cada hora y P95 (los días más altos). La franja sombreada es la hora punta: lunes a viernes de 18:00 a 23:00.</figcaption></figure>
+        <p class="b-sug"><b>Dato</b><span>En hora punta se consume el ${pct(k.puntaPct, 1)} de la energía${k.pPuntaPct != null ? ` (en ${esc(per.fraseComp)}, ${pct(k.pPuntaPct, 1)})` : ''}. Es el tramo en que la energía y la potencia suelen costar más.</span></p>`});
+    secs.push({id: 'b-s5', nav: 'Hora por hora', kicker: 'Hora por hora', h3: 'Cada día, hora por hora',
+      cuerpo: `<figure class="b-fig">${fig('b-heat', {tipo: 'heat', titulo: 'Mapa de calor del consumo'})}<figcaption class="b-cap">Cada casilla es una hora: más intenso, más consumo. Sirve para ver horarios de encendido y días que se salen de lo normal.</figcaption></figure>`});
+    const cal = [
+      {t: `Llegó el ${pct(k.cob, 1)} de las lecturas esperadas (una por minuto en cada medidor). La energía de los huecos no se pierde: el contador la recupera.`, alerta: k.cob < 0.97},
+      {t: c.metodo || ''}, {t: t.nota || ''}, ...notas(k, 'rep'), ...notas(k, 'rank'),
+    ];
+    if (per.d1 === m.dHoy) cal.push({t: 'El día de hoy no se incluye hasta que termina.'});
+    secs.push({id: 'b-s6', nav: 'Calidad', kicker: 'Calidad de los datos', h3: '¿Cuánto confiar en estas cifras?',
+      cuerpo: `<ul class="b-calidad">${cal.filter(x => x.t).map(x => `<li class="${x.alerta ? 'alerta' : ''}">${esc(x.t)}</li>`).join('')}</ul>`});
+    extraDe('B').forEach(sp => {
+      const kk = kDe(sp);
+      secs.push({id: `b-${sp.id}`, w: sp.id, cls: 'b-agregado', nav: sp.titulo, kicker: 'Agregado desde una pregunta · se actualiza solo', h3: sp.titulo,
+        cuerpo: `<figure class="b-fig">${fig(sp.id, sp, sp.tipo === 'diario' ? 'alto' : '')}<figcaption class="b-cap">${esc(kk.nodo.nombre)} · ${esc(kk.per.rango)}</figcaption></figure>
+          <button class="b-quitar" data-act="quitar" data-v="${sp.id}" data-k="rm-${sp.id}">Quitar del informe</button>`});
+    });
+    let n = 0;
+    const num = s => s.w ? '★' : String(++n);
+    const nums = secs.map(num);
+    const lede = `En ${esc(per.frase)}, ${esc(nodo.nombre)} consumió <strong>${esc(energiaTxt(k.total))}</strong>`
+      + (k.delta != null ? `, un <strong>${pct(Math.abs(k.delta), 1)} ${k.delta >= 0 ? 'más' : 'menos'}</strong> por día que en ${esc(per.fraseComp)}` : '')
+      + (k.costo != null ? ` (unos <strong>${esc(dinero(k.costo, t.moneda))}</strong>)` : '') + '. '
+      + `De noche se va el <strong>${pct(k.nochePct)}</strong> de la energía`
+      + (top ? ` y ${top.otros ? 'lo que no tiene medidor propio' : esc(top.nombre)} pesa el <strong>${pct(top.kwh / totP)}</strong> del total` : '') + '.';
+    return `<div class="b-page">
+      <div class="b-mast"><span>ZEIA · Informe de energía · ${esc(etiquetaCliente(c))}</span><span class="vivo"><span class="pulso" aria-hidden="true"></span>En vivo: datos hasta las ${horaLima(m.hasta)} del ${esc(diaMedio(fechaLima(m.hasta)))}</span></div>
+      <header class="b-head"><div>${nodo !== m.raiz ? `<nav class="a-migas" aria-label="Ubicación">${migasHtml(m, nodo)}</nav>` : ''}
+          <h1>${esc(nodo.nombre)}</h1><h2>Informe de ${esc(per.frase)} · ${esc(per.rango)}</h2></div>
+        <p class="b-lede">${lede}</p></header>
+      <aside class="b-rail"><h2>En este informe</h2>
+        <ol>${secs.map((s, i) => `<li><a href="#${s.id}"><b>${nums[i]}</b>${esc(s.nav)}</a></li>`).join('')}<li><a href="#b-preg"><b>?</b>Pregúntale</a></li></ol>
+        <div class="b-per" role="group" aria-label="Periodo del informe"><h2>Periodo</h2>${botonesPeriodo(per, 'b')}</div></aside>
+      <main class="b-main">
+        ${secs.map((s, i) => `<section class="b-sec ${s.cls || ''}" id="${s.id}"${s.w ? ` data-w="${s.w}"` : ''} aria-labelledby="${s.id}-t">
+          <p class="b-kicker">${s.w ? '★ ' : `${nums[i]} · `}${esc(s.kicker)}</p><h3 id="${s.id}-t">${esc(s.h3)}</h3>${s.cuerpo}</section>`).join('')}
+        <section class="b-preg" id="b-preg" aria-labelledby="b-preg-t">
+          <h3 id="b-preg-t">Pregúntale al informe</h3>
+          <p>La respuesta llega con su gráfico. Si te sirve, agrégala: queda en el informe y se actualiza sola.</p>
+          <form data-form="preguntar"><label class="sr" for="b-q">Tu pregunta</label><input id="b-q" data-k="b-q" autocomplete="off" placeholder="¿Qué día se consumió más y por qué?"><button type="submit">Preguntar</button></form>
+          <div class="chips">${chipsHtml('b')}</div>
+          <div class="b-log" aria-live="polite">${logDe().map(x => msgHtml(x, 'Agregar al informe')).join('')}</div>
+        </section>
+      </main>
+      <footer class="b-metodo">
+        <p><b>Cómo se calcula.</b> El consumo es la diferencia del contador de energía de cada medidor, hora por hora: no se suman lecturas. Todo va en hora de Lima y el día de hoy no entra hasta que termina. La comparación usa el mismo número de días del periodo anterior. Consumo base: de 22:00 a 08:00, como en el reporte mensual. Hora punta: lunes a viernes de 18:00 a 23:00.</p>
+        <p><b>Costos.</b> Son estimados con la tarifa indicada en «Calidad de los datos»; no incluyen cargos fijos, potencia ni impuestos. <b>Fuente:</b> plataforma ZEIA en producción, solo lectura. Maqueta generada el ${esc(diaMedio(fechaLima(new Date(D.generado))))} a las ${horaLima(new Date(D.generado))}.</p>
+      </footer>
+    </div>`;
+  },
+  montar(app) { montarLista(app, this.charts, TEMAS.B); montarChat(app, TEMAS.B); },
+};
+</script>
+<script>
+'use strict';
+/* ------------------------- C · EXPLORADOR -------------------------
+   Árbol de medición a la izquierda, barra de comandos (buscar o preguntar)
+   arriba y un lienzo que cambia con cada selección. */
+function arbolC(m, per) {
+  const fila = n => {
+    const k = calc(m, n, per), par = n.padre ? calc(m, n.padre, per).total : 0;
+    const share = n.padre && par ? Math.max(0.02, Math.min(1, k.total / par)) : 0;
+    return `<li><button class="c-nodo" style="--n:${nivelVisible(n)}" data-act="foco" data-v="${n.id}" data-k="arb-${n.id}"${n.id === estado.foco ? ' aria-current="true"' : ''}>`
+      + `<span class="car" aria-hidden="true">${n.hijos.length ? '▾' : '·'}</span><span class="nom">${esc(n.nombre)}</span>`
+      + `<span class="v num">${esc(energiaTxt(k.total))}</span><span class="c-barra" aria-hidden="true"><i style="width:${(share * 100).toFixed(1)}%"></i></span></button></li>`
+      + n.hijos.map(fila).join('');
+  };
+  return `<ul class="c-arbol">${fila(m.raiz)}</ul>`
+    + (m.c.fuera.length ? `<p class="c-grupo">Fuera del total</p><ul class="c-arbol">${m.c.fuera.map(fila).join('')}</ul>` : '');
+}
+function dropC(input) {
+  const drop = $('#c-drop'); if (!drop) return;
+  const txt = input.value.trim(), q = sinTildes(txt), m = modelo(estado.cliente);
+  const nodos = q ? [...m.nodos.values()].filter(n => sinTildes(n.nombre).includes(q)).slice(0, 6) : [];
+  const pregs = Object.entries(INTENCIONES).filter(([, v]) => !q || sinTildes(v.pregunta).includes(q) || v.re.test(txt));
+  let h = '';
+  if (nodos.length) h += '<h4>Ir a</h4>' + nodos.map(n => `<button type="button" data-act="foco" data-v="${n.id}">${ICON.flecha}${esc(n.nombre)}<small>${esc(n.fuera ? 'fuera del total' : n.padre ? n.padre.nombre : 'sede')}</small></button>`).join('');
+  if (pregs.length) h += '<h4>Preguntar</h4>' + pregs.map(([i, v]) => `<button type="button" data-act="chip" data-v="${i}">${ICON.chat}${esc(v.pregunta)}</button>`).join('');
+  if (q && !nodos.length && !pregs.length) h += `<h4>Preguntar</h4><button type="button" data-act="c-libre">${ICON.chat}«${esc(txt)}»<small>Enter</small></button>`;
+  drop.innerHTML = h;
+  drop.hidden = !h;
+}
+VISTAS.C = {
+  charts: [],
+  html({m, per, nodo, k}) {
+    const c = m.c, t = c.tarifa, ch = this.charts = [];
+    const card = (id, sp, titulo, sub, cls = '') => { ch.push({id, sp}); return `<section class="c-card" aria-labelledby="${id}-t"><div class="c-card-h"><div><h3 id="${id}-t">${esc(titulo)}</h3><p class="s">${esc(sub)}</p></div></div><div class="chart ${cls}" data-chart="${id}" role="img" aria-label="${esc(titulo)}"></div></section>`; };
+    const log = logDe(), iu = log.map(x => x.rol).lastIndexOf('ia'), ult = iu >= 0 ? log[iu] : null, preg = iu > 0 ? log[iu - 1] : null;
+    const resp = ult && !ult.oculto ? `<section class="c-card c-resp" aria-label="Respuesta a tu pregunta">
+        <div class="c-card-h"><div><p class="s">Preguntaste</p><h3>${esc(preg ? preg.texto : '')}</h3></div>
+          <button class="c-x" data-act="c-cerrar" data-v="${ult.id}" data-k="c-cerrar" aria-label="Cerrar la respuesta">${ICON.x}</button></div>
+        ${msgHtml(ult, 'Fijar en esta vista')}</section>` : '';
+    const pins = extraDe('C');
+    const pinsHtml = pins.length ? `<section class="c-pins" aria-label="Fijado en esta vista"><h2>Fijado en esta vista · se actualiza solo</h2>${pins.map(sp => {
+      const kk = kDe(sp);
+      return `<article class="c-card" data-w="${sp.id}"><div class="c-card-h"><div><h3>${esc(sp.titulo || '')}</h3><p class="s">${esc(kk.nodo.nombre)} · ${esc(kk.per.rango)}</p></div>
+        <button class="c-x" data-act="quitar" data-v="${sp.id}" data-k="rm-${sp.id}" aria-label="Quitar «${esc(sp.titulo || '')}»">${ICON.x}</button></div>
+        <div class="chart bajo" data-chart="${sp.id}" role="img" aria-label="${esc(sp.titulo || '')}"></div></article>`;
+    }).join('')}</section>` : '';
+    const stat = (et, [v, u], extra = '') => `<div class="c-stat"><small>${esc(et)}</small><b class="num">${esc(v)}${u ? `<small>${esc(u)}</small>` : ''}</b>${extra}</div>`;
+    const [nv, nu] = energia(k.nocheDia);
+    const stats = [
+      stat('Consumo', energia(k.total), deltaHtml(k.delta, per.fraseComp)),
+      stat('Promedio por día', energia(k.prom)),
+      t.kwh ? stat('Costo estimado', dineroPartes(k.costo, t.moneda)) : '',
+      stat('De noche', [nv, `${nu}/noche`], deltaHtml(k.deltaNoche, per.fraseComp)),
+      stat('En hora punta', [pct(k.puntaPct, 1), ''], k.pPuntaPct != null ? deltaPP(k.puntaPct - k.pPuntaPct, per.fraseComp) : ''),
+      nodo !== m.raiz && k.share != null ? stat('Del total de la sede', [pct(k.share, 1), '']) : '',
+      stat('Lecturas recibidas', [pct(k.cob, 1), '']),
+    ].join('');
+    const det = [nodo.detalle, nodo.fuera ? 'fuera del total de la sede' : '', `${per.nombre} (${per.rango})`,
+      per.okPrev ? `comparado con ${per.fraseComp}` : ''].filter(Boolean).join(' · ');
+    const lado = partes(k).length
+      ? card('c-rep', {tipo: 'reparto', grafico: 'barras'}, nodo.punto ? 'Reparto y no desagregado' : 'Reparto por tablero', 'Toca una barra para entrar')
+      : card('c-nd', {tipo: 'nochedia'}, 'Noche y día', 'kWh por día; en azul, de 22:00 a 08:00');
+    return `<div class="c-app">
+      <header class="c-top">
+        <div class="c-marca"><i aria-hidden="true">Z</i><span>ZEIA</span><small>Explorador · ${esc(etiquetaCliente(c))}</small></div>
+        <div class="c-cmd"><form data-form="c-cmd" role="search">${ICON.lupa}<label class="sr" for="c-q">Buscar o preguntar</label>
+          <input id="c-q" data-k="c-q" autocomplete="off" placeholder="Busca un tablero o circuito, o pregunta algo…"><kbd aria-hidden="true">/</kbd></form>
+          <div class="c-drop" id="c-drop" hidden></div></div>
+        <div class="c-seg" role="group" aria-label="Periodo">${botonesPeriodo(per, 'c')}</div>
+        <p class="c-vivo"><span class="pulso" aria-hidden="true"></span>en vivo · hasta ${horaLima(m.hasta)}</p>
+      </header>
+      <nav class="c-side" aria-label="Medición de la sede"><div class="c-side-h"><small>Sede</small><b>${esc(m.raiz.nombre)}</b></div>
+        <p class="c-grupo">Medición · ${esc(per.nombre.toLowerCase())}</p>${arbolC(m, per)}</nav>
+      <main class="c-canvas">
+        ${resp}${pinsHtml}
+        <nav class="c-migas" aria-label="Ubicación">${migasHtml(m, nodo)}</nav>
+        <div class="c-head"><h1>${esc(nodo.nombre)}</h1><p class="c-det">${esc(det)}</p></div>
+        <div class="c-stats">${stats}</div>
+        ${card('c-diario', {tipo: 'diario', grafico: 'bar'}, 'Consumo por día', `${per.rango}${estado.comparar && per.okPrev ? ` · punteado: ${per.fraseComp}` : ''}`, 'alto')}
+        <div class="c-fila">${card('c-curva', {tipo: 'curva'}, 'Un día típico', 'kW promedio y P95 por hora · franja: hora punta')}${lado}</div>
+        ${k.hojas.length > 1 ? card('c-rank', {tipo: 'ranking', n: 12}, 'Circuitos que más consumen', 'Toca una barra para entrar') : ''}
+        ${card('c-heat', {tipo: 'heat'}, 'Hora por hora', 'Cada casilla es una hora: más intenso, más consumo')}
+        <div class="c-notas">${notasHtml(notas(k))}</div>
+      </main>
+    </div>`;
+  },
+  montar(app) {
+    extraDe('C').forEach(sp => { const el = app.querySelector(`[data-chart="${sp.id}"]`); if (el) dibujar(el, sp, TEMAS.C); });
+    montarLista(app, this.charts, TEMAS.C);
+    montarChat(app, TEMAS.C);
+  },
+};
+</script>
+<script>
+'use strict';
+/* ------------------------- D · CHAT PRIMERO -------------------------
+   El cliente entra al chat, pregunta por cualquier sede, tablero o circuito
+   (sin capas), ve la respuesta con su gráfico y otras formas de verlo, y arma
+   "Mi dashboard" con lo que le sirve. El mapa muestra cómo se conecta todo
+   y cuánta energía pasa por cada línea, para que no se pierda. */
+const dashD = () => (estado.D.dash[estado.cliente] ||= []);
+const limpiarTxt = s => ` ${sinTildes(s || '').replace(/[¿?¡!.,;:"«»()]/g, ' ').replace(/\s+/g, ' ')} `;
+const GENERICAS = new Set(['tablero', 'tableros', 'alumbrado', 'llave', 'general', 'sala', 'salas', 'otros', 'piso']);
+function aliasDe(n) {
+  const base = sinTildes(n.nombre), out = new Set([base, base.replace(/\s*\(.*?\)\s*/g, ' ').trim()]);
+  base.split(/\s+·\s+|\s+\/\s+/).forEach(p => {
+    const parte = p.replace(/\s*\(.*?\)\s*/g, ' ').trim(), w = parte.split(/\s+/);
+    out.add(parte);
+    if (w.length >= 3) out.add(w.slice(0, 2).join(' '));                    // «data center», «aire acondicionado»
+    if (w.length >= 2 && w[0].length >= 6 && !GENERICAS.has(w[0])) out.add(w[0]);   // «ascensor», «hemodialisis»
+  });
+  return [...out].filter(a => a.length >= 3).map(a => ` ${a.replace(/[()]/g, ' ').replace(/\s+/g, ' ').trim()} `);
+}
+/* ¿De qué sede, tablero o circuito habla la pregunta? El nombre más largo que aparezca gana. */
+function nodoDe(txt) {
+  const q = limpiarTxt(txt), m = modelo(estado.cliente);
+  let mejor = null, largo = 0;
+  for (const n of m.nodos.values()) for (const a of aliasDe(n)) if (a.length > largo && q.includes(a)) { mejor = n; largo = a.length; }
+  if (!mejor && [m.c.empresa, m.c.sede, 'sede', 'tienda', 'clinica', 'total'].some(x => q.includes(` ${sinTildes(x)} `))) mejor = m.raiz;
+  return mejor;
+}
+function periodoDe(txt) {
+  const q = limpiarTxt(txt), hoy = fecha(modelo(estado.cliente).dHoy);
+  if (/ mes (pasado|anterior) | ultimo mes /.test(q) || q.includes(` ${sinTildes(ML[(hoy.getUTCMonth() + 11) % 12])} `)) return 'mes_ant';
+  if (/ (esta|la|ultima) semana | 7 dias | siete dias /.test(q)) return '7d';
+  if (/ este mes | en lo que va /.test(q) || q.includes(` ${sinTildes(ML[hoy.getUTCMonth()])} `)) return 'mes';
+  return null;
+}
+function resumenD(m, nodo, per) {
+  const k = calc(m, nodo, per), t = m.c.tarifa, top = partes(k).sort((a, b) => b.kwh - a.kwh)[0];
+  let tx = `${nodo.nombre} consumió ${energiaTxt(k.total)} ${per.fraseEn}`;
+  if (k.delta != null && k.pProm >= 0.1) tx += `: ${pct(Math.abs(k.delta), 1)} ${k.delta >= 0 ? 'más' : 'menos'} por día que en ${per.fraseComp}`;
+  tx += k.costo != null ? ` (unos ${dinero(k.costo, t.moneda)}).` : '.';
+  if (nodo.padre) tx += ` Es el ${pct(k.total / (calc(m, nodo.padre, per).total || 1))} de ${nodo.padre.nombre}.`;
+  if (top) tx += ` Lo que más pesa: ${top.nombre} (${pct(top.kwh / (k.total || 1))}).`;
+  if (k.prom < 0.1 && k.cob > 0.5) tx += ' Ojo: llegan lecturas, pero su contador no avanza.';
+  return {titulo: `Cómo va ${nodo.nombre}`, consulta: `el consumo de ${nodo.nombre}`, texto: tx,
+    spec: {foco: nodo.id, periodo: per.clave, tipo: 'diario', grafico: 'bar', titulo: `Consumo por día · ${nodo.nombre}`}};
+}
+/* Otras formas de ver la misma respuesta (el cliente elige cómo se presenta). */
+const ALT_DEF = {
+  bar: ['Barras por día', {tipo: 'diario', grafico: 'bar'}], line: ['Línea', {tipo: 'diario', grafico: 'line'}],
+  heat: ['Mapa de calor', {tipo: 'heat'}], nochedia: ['Noche y día', {tipo: 'nochedia'}],
+  curva: ['Día típico', {tipo: 'curva', modo: 'prom'}], semana: ['Laborables vs fin de semana', {tipo: 'curva', modo: 'semana'}],
+  dona: ['Dona', {tipo: 'reparto', grafico: 'dona'}], barras: ['Barras', {tipo: 'reparto', grafico: 'barras'}],
+  cien: ['Barra 100%', {tipo: 'reparto100'}], ranking: ['Ranking de circuitos', {tipo: 'ranking', n: 10}],
+  noche: ['De noche, por circuito', {tipo: 'noche'}],
+};
+const G_DIA = ['bar', 'line', 'heat', 'nochedia'], G_CURVA = ['curva', 'semana', 'heat'], G_REP = ['dona', 'barras', 'cien', 'ranking'];
+const ALT_GRUPO = {bar: G_DIA, line: G_DIA, heat: ['heat', 'curva', 'bar'], curva: G_CURVA, semana: G_CURVA,
+  dona: G_REP, barras: G_REP, cien: G_REP, ranking: ['ranking', 'dona', 'barras'], noche: ['noche', 'nochedia'], nochedia: ['nochedia', 'noche', 'bar']};
+const ALT_SUG = {bar: 'heat', line: 'heat', heat: 'curva', curva: 'heat', semana: 'heat', dona: 'ranking', barras: 'ranking',
+  cien: 'ranking', ranking: 'dona', noche: 'nochedia', nochedia: 'noche'};
+const ALT_POR_QUE = {heat: 'muestra a qué hora se enciende y apaga cada día', curva: 'resume todo en un día típico',
+  ranking: 'ordena los circuitos de mayor a menor', dona: 'muestra cuánto pesa cada parte del total',
+  nochedia: 'muestra si el consumo nocturno es parejo todos los días', noche: 'muestra qué queda encendido de noche'};
+const altClave = sp => sp.tipo === 'diario' ? (sp.grafico === 'line' ? 'line' : 'bar') : sp.tipo === 'curva' ? (sp.modo === 'semana' ? 'semana' : 'curva')
+  : sp.tipo === 'reparto' ? (sp.grafico === 'barras' ? 'barras' : 'dona') : sp.tipo === 'reparto100' ? 'cien' : sp.tipo;
+function alternativas(sp) {
+  const m = modelo(estado.cliente), n = m.nodos.get(sp.foco) || m.raiz;
+  const vale = a => a === 'ranking' || a === 'noche' ? hojasDe(n).length > 1 : (['dona', 'barras', 'cien'].includes(a) ? n.hijos.length > 0 : true);
+  return (ALT_GRUPO[altClave(sp)] || []).filter(vale).map(a => [a, ALT_DEF[a][0]]);
+}
+function conAlternativa(sp, clave) {
+  const m = modelo(estado.cliente), n = m.nodos.get(sp.foco) || m.raiz, [et, def] = ALT_DEF[clave];
+  const nuevo = {foco: sp.foco, ...def, titulo: `${et} · ${n.nombre}`};
+  if (sp.periodo) nuevo.periodo = sp.periodo;
+  if (sp.fijo) nuevo.fijo = true;
+  if (sp.metrica && ['diario', 'reparto', 'ranking'].includes(def.tipo)) nuevo.metrica = sp.metrica;
+  return nuevo;
+}
+function sugerenciaD(sp) {
+  const s = ALT_SUG[altClave(sp)];
+  return s && alternativas(sp).some(([a]) => a === s) ? `Prueba «${ALT_DEF[s][0]}»: ${ALT_POR_QUE[s]}.` : '';
+}
+function msgD(msg) {
+  if (msg.rol === 'yo' || msg.sin) return msgHtml(msg, '');
+  const alts = alternativas(msg.spec), act = altClave(msg.spec), sug = sugerenciaD(msg.spec);
+  return `<div class="msg ia" data-msg="${msg.id}">
+    <p class="msg-estado"${msg.animar ? '' : ' hidden'}>Consultando ${esc(msg.consulta)}…</p>
+    <div class="msg-cuerpo"${msg.animar ? ' hidden' : ''}>
+      <h4>${esc(msg.titulo)}</h4><p class="msg-texto">${esc(msg.texto)}</p>
+      <div class="chart" data-msg-chart="${msg.id}" role="img" aria-label="${esc(msg.spec.titulo || msg.titulo)}"></div>
+      ${alts.length > 1 ? `<div class="d-alt" role="group" aria-label="Otras formas de verlo">Verlo como:${alts.map(([c, et]) =>
+        `<button data-act="d-alt" data-v="${msg.id}" data-alt="${c}" data-k="alt-${msg.id}-${c}" aria-pressed="${c === act}">${esc(et)}</button>`).join('')}</div>` : ''}
+      ${sug ? `<p class="d-sug">💡 ${esc(sug)}</p>` : ''}
+      <button class="fijar" data-act="fijar" data-v="${msg.id}" data-k="fijar-${msg.id}"${msg.fijado ? ' disabled' : ''}>${ICON.pin}${msg.fijado ? 'Ya está en tu dashboard' : 'Agregar a mi dashboard'}</button>
+    </div></div>`;
+}
+const PREG_D = {
+  resumen: n => `¿Cómo va ${n.nombre}?`, noche: n => `¿Qué se consume de noche en ${n.nombre}?`,
+  extremos: n => `¿Qué día consumió más ${n.nombre} y por qué?`, semana: n => `${n.nombre}: laborables vs fin de semana`,
+  costo: n => `¿Cuánto cuesta ${n.nombre}?`,
+};
+function preguntarD(texto, intent) {
+  const m = modelo(estado.cliente), mencion = texto ? nodoDe(texto) : null;
+  const nodo = mencion || m.nodos.get(estado.foco) || m.raiz;
+  const pc = texto ? periodoDe(texto) : null, per = periodo(m, pc || estado.periodo);
+  const i = intent || intencion(texto || '') || (mencion || /como va|como esta|resumen|consum/.test(limpiarTxt(texto)) ? 'resumen' : null);
+  const log = logDe();
+  log.push({rol: 'yo', texto: texto || PREG_D[i](nodo)});
+  if (!i) {
+    const ej = hojasDe(m.raiz)[0] || m.raiz;
+    log.push({rol: 'ia', id: `m${++SEQ}`, sin: true, texto: `En esta maqueta respondo sobre consumo, noche, días altos, laborables y costos. Nombra cualquier sede, tablero o circuito (por ejemplo: «¿Cómo va ${ej.nombre}?») o tócalo en el mapa.`});
+  } else {
+    const r = i === 'resumen' ? resumenD(m, nodo, per) : responder(i, m, nodo, per);
+    if (pc) r.spec.fijo = true;                       // periodo pedido explícitamente: el gráfico fijado lo conserva
+    log.push({rol: 'ia', id: `m${++SEQ}`, animar: true, ...r});
+  }
+  if (mencion) estado.foco = mencion.id;              // el mapa marca de qué se está hablando
+  render();
+  const ms = $$('.d-log .msg');
+  if (ms.length) ms[ms.length - 1].scrollIntoView({block: 'nearest', behavior: SUAVE});
+}
+/* Mapa de conexiones: diagrama unifilar (árbol) donde el grosor de cada línea es la energía que pasa. */
+function datosMapa(m, n, per, color, maxKwh, T) {
+  const k = calc(m, n, per), sel = n.id === estado.foco, ancho = v => +(1 + 9 * Math.sqrt(Math.max(0, v) / (maxKwh || 1))).toFixed(2);
+  const tam = v => +(6 + 12 * Math.sqrt(Math.max(0, v) / (maxKwh || 1))).toFixed(1);   // el punto crece con la energía
+  const hijos = n.hijos.map(h => datosMapa(m, h, per, n === m.raiz ? m.colorDe(h, T.pal) : color, maxKwh, T));
+  if (k.otros != null && k.otros > 0.005 * k.total) hijos.push({name: 'Otros no desagregados', kwh: k.otros, share: n.fuera ? null : k.otros / maxKwh, symbolSize: tam(k.otros),
+    itemStyle: {color: T.card, borderColor: T.otros, borderWidth: 2}, lineStyle: {color: T.otros, width: ancho(k.otros), type: 'dashed'}, label: {color: T.mut}});
+  return {name: n.nombre, nodoId: n.id, kwh: k.total, share: n.fuera ? null : k.total / (maxKwh || 1), children: hijos, symbol: 'circle',
+    symbolSize: sel ? Math.max(15, tam(k.total)) : tam(k.total),
+    itemStyle: {color: sel ? T.acc : T.card, borderColor: sel ? T.acc : color, borderWidth: sel ? 3 : 2},
+    lineStyle: {color, width: ancho(k.total)}, label: sel ? {fontWeight: 700, color: T.acc} : undefined};
+}
+const pctMapa = s => s == null ? '' : (s < 0.01 ? `${nf1.format(s * 100)}%` : pct(s));
+const hojasMapa = d => d.children && d.children.length ? suma(d.children.map(hojasMapa)) : 1;
+const alturaMapa = d => d.children && d.children.length ? 1 + Math.max(...d.children.map(alturaMapa)) : 0;
+/* Lleva todas las hojas a la última columna (con tramos invisibles): así ninguna
+   etiqueta se cruza con las líneas de otro tablero. */
+function nivelarMapa(d, nivel, alto) {
+  if (d.children && d.children.length) { d.children = d.children.map(h => nivelarMapa(h, nivel + 1, alto)); return d; }
+  let x = d;
+  for (let i = nivel; i < alto; i++) x = {name: d.name, kwh: d.kwh, symbolSize: 0, itemStyle: {opacity: 0}, label: {show: false}, tooltip: {show: false}, lineStyle: d.lineStyle, children: [x]};
+  return x;
+}
+function opcMapa(datos, T) {
+  return {backgroundColor: 'transparent', animation: !REDUCIR, animationDuration: 300, textStyle: {fontFamily: T.font},
+    tooltip: Object.assign(tip(T, {trigger: 'item'}), {formatter: p => `<b>${esc(p.data.name)}</b><br>${energiaTxt(p.data.kwh || 0)}${p.data.nodoId ? '<br><span style="opacity:.7">Toca para preguntar por esto</span>' : ''}`}),
+    series: [{type: 'tree', data: [datos], orient: 'LR', layout: 'orthogonal', edgeShape: 'polyline', edgeForkPosition: '55%',
+      left: 22, right: 150, top: 26, bottom: 10, initialTreeDepth: -1, expandAndCollapse: false, roam: false, emphasis: {focus: 'ancestor'},
+      label: {position: 'top', align: 'center', verticalAlign: 'bottom', distance: 7, fontSize: 11.5, lineHeight: 13, color: T.ink, width: 86, overflow: 'break', formatter: p => p.data.name},
+      leaves: {label: {position: 'right', align: 'left', verticalAlign: 'middle', distance: 7, fontSize: 11.5, width: 146, overflow: 'truncate',
+        formatter: p => p.data.share != null ? `{p|${pctMapa(p.data.share)}} ${p.data.name}` : p.data.name, rich: {p: {color: T.mut, fontFamily: T.mono, fontSize: 10, width: 34}}}}}]};
+}
+function mapaD(m, per) {
+  const T = TEMAS.D, raiz = calc(m, m.raiz, per).total, partes = [];
+  const principal = datosMapa(m, m.raiz, per, T.ink, raiz, T);
+  principal.label = {position: 'bottom', align: 'left', verticalAlign: 'top', offset: [-8, 4], width: 60, overflow: 'none', formatter: 'Sede',
+    fontWeight: 700, color: m.raiz.id === estado.foco ? T.acc : T.ink};
+  partes.push({id: 'd-mapa', datos: nivelarMapa(principal, 0, alturaMapa(principal)), alto: 46 + hojasMapa(principal) * 25});
+  if (m.c.fuera.length) {
+    const f = {name: 'Fuera del total', kwh: suma(m.c.fuera.map(n => calc(m, n, per).total)), symbolSize: 6, itemStyle: {color: T.mut, borderColor: T.mut},
+      label: {position: 'bottom', align: 'left', verticalAlign: 'top', offset: [-8, 4], width: 60, overflow: 'none', formatter: 'Fuera', color: T.mut},
+      children: m.c.fuera.map((n, i) => datosMapa(m, n, per, T.pal[(i + 3) % T.pal.length], raiz, T))};
+    partes.push({id: 'd-mapa-fuera', datos: nivelarMapa(f, 0, alturaMapa(f)), alto: 40 + hojasMapa(f) * 25});
+  }
+  return partes;
+}
+function widgetD(sp) {
+  const k = kDe(sp), titulo = sp.titulo || 'Gráfico', alts = alternativas(sp), act = altClave(sp);
+  return `<section class="a-w${sp.nuevo ? ' nuevo' : ''}" style="--span:${sp.span || 6}" data-w="${sp.id}" aria-labelledby="t-${sp.id}">
+    <div class="a-w-h"><button class="a-asa" draggable="true" data-act="asa" data-v="${sp.id}" data-k="asa-${sp.id}" aria-label="Mover «${esc(titulo)}»: arrástralo o usa las flechas del teclado" title="Arrastra para mover">⠿</button>
+      <div class="a-w-t"><h3 id="t-${sp.id}">${esc(titulo)}</h3><p>${esc(k.nodo.nombre)} · ${esc(sp.periodo ? `${PERIODOS[sp.periodo]} (${k.per.rango})` : k.per.rango)}</p></div>
+      <div class="a-w-acc">
+        <button class="a-ico" data-act="d-ancho" data-v="${sp.id}" data-k="an-${sp.id}" aria-label="Cambiar el ancho de «${esc(titulo)}»" title="Cambiar ancho">↔</button>
+        <button class="a-ico" data-act="quitar" data-v="${sp.id}" data-k="rm-${sp.id}" aria-label="Quitar «${esc(titulo)}» del dashboard" title="Quitar">${ICON.x}</button>
+      </div></div>
+    <div class="a-w-b"><div class="chart${sp.tipo === 'diario' ? ' alto' : ''}" data-chart="${sp.id}" role="img" aria-label="${esc(titulo)}"></div></div>
+    ${alts.length > 1 ? `<div class="d-alt d-w-pie" role="group" aria-label="Otras formas de verlo">Verlo como:${alts.map(([c, et]) =>
+      `<button data-act="d-alt-w" data-v="${sp.id}" data-alt="${c}" data-k="altw-${sp.id}-${c}" aria-pressed="${c === act}">${esc(et)}</button>`).join('')}</div>` : ''}
+  </section>`;
+}
+function saludoD(m, per) {
+  const log = logDe();
+  if (log.length) return;
+  const r = resumenD(m, m.raiz, per);
+  log.push({rol: 'ia', id: `m${++SEQ}`, ...r, titulo: `Hola, soy ZEIA. Así va ${m.raiz.nombre}`,
+    texto: `${r.texto} Pregúntame por cualquier tablero o circuito, o tócalo en el mapa. Lo que te sirva, agrégalo a tu dashboard.`});
+}
+async function capturarD() {
+  const el = $('#d-captura');
+  if (!el || typeof html2canvas === 'undefined') { alert('No se pudo generar la imagen en este navegador.'); return; }
+  el.classList.add('capturando');
+  try {
+    const lienzo = await html2canvas(el, {backgroundColor: '#f1eee6', scale: 2, logging: false});
+    const a = document.createElement('a'), hoy = fechaLima(new Date());
+    a.download = `zeia-dashboard-${estado.cliente}-${hoy.toISOString().slice(0, 10)}.png`;
+    a.href = lienzo.toDataURL('image/png');
+    document.body.appendChild(a); a.click(); a.remove();
+  } catch (e) {
+    alert(`No se pudo generar la imagen: ${e.message || e}`);
+  } finally { el.classList.remove('capturando'); }
+}
+VISTAS.D = {
+  graficos: [],
+  html({m, per, nodo, k}) {
+    const c = m.c, dash = dashD(), vista = estado.D.vista, T = TEMAS.D;
+    saludoD(m, per);
+    const tabs = `<div class="seg d-tabs" role="group" aria-label="Vista">
+      <button data-act="d-vista" data-v="chat" data-k="d-tab-chat" aria-pressed="${vista === 'chat'}">${ICON.chat}Conversar</button>
+      <button data-act="d-vista" data-v="dashboard" data-k="d-tab-dash" aria-pressed="${vista === 'dashboard'}">Mi dashboard<span class="d-badge${estado.D.aviso ? ' pulsa' : ''}">${dash.length}</span></button></div>`;
+    const top = `<header class="a-top">
+      <div class="a-marca"><span class="a-logo" aria-hidden="true">Z</span><div><b>ZEIA</b><small>Asistente de energía</small></div></div>
+      <div class="a-cli"><small>Cliente</small><b>${esc(etiquetaCliente(c))}</b></div>${tabs}
+      <p class="a-vivo"><span class="pulso" aria-hidden="true"></span><span>Actualizado ${horaLima(m.hasta)}</span></p>
+      <div class="seg" role="group" aria-label="Periodo">${botonesPeriodo(per, 'd')}</div></header>`;
+    const aviso = estado.D.aviso ? `<div class="d-aviso" role="status">📌 Agregado a tu dashboard (${dash.length})<button data-act="d-vista" data-v="dashboard" data-k="d-aviso">Ver dashboard</button></div>` : '';
+    if (vista === 'dashboard') {
+      this.graficos = [];
+      const cuerpo = dash.length ? `<div class="d-captura" id="d-captura"><div class="a-grid">${dash.map(widgetD).join('')}</div>
+          <p class="d-captura-pie">ZEIA · ${esc(etiquetaCliente(c))} · ${esc(per.nombre)} (${esc(per.rango)}) · imagen del ${esc(diaMedio(fechaLima(new Date())))}</p></div>`
+        : `<div class="d-vacio"><b>Tu dashboard está vacío</b><p>Pregunta en el chat y toca «Agregar a mi dashboard» en las respuestas que te sirvan. Aquí las ordenas y las guardas como imagen.</p>
+          <button class="d-btn pri" data-act="d-vista" data-v="chat" data-k="d-vacio">Ir al chat</button></div>`;
+      return `<div class="d-app">${top}<main class="d-dash">
+        <div class="d-dash-h"><div><h1>Mi dashboard</h1><p>${esc(etiquetaCliente(c))} · ${esc(per.nombre)} (${esc(per.rango)}) · ${dash.length} gráfico${dash.length === 1 ? '' : 's'} armado${dash.length === 1 ? '' : 's'} desde el chat. Arrastra ⠿ para ordenarlos.</p></div>
+          <div class="d-dash-acc"><button class="d-btn" data-act="d-vista" data-v="chat" data-k="d-volver">← Seguir preguntando</button>
+            ${dash.length ? '<button class="d-btn pri" data-act="d-captura" data-k="d-captura">📸 Guardar como imagen</button>' : ''}</div></div>
+        ${cuerpo}</main>${aviso}</div>`;
+    }
+    this.graficos = mapaD(m, per);
+    const sel = nodo, ks = k, padre = sel.padre;
+    const chips = Object.keys(PREG_D).map(i => `<button class="chip" data-act="d-chip" data-v="${i}" data-k="d-chip-${i}">${esc(PREG_D[i](sel))}</button>`).join('');
+    return `<div class="d-app">${top}<div class="d-cuerpo">
+      <aside class="d-mapa" aria-label="Mapa de la instalación">
+        <h2>Mapa de ${esc(m.raiz.nombre)}</h2>
+        <p>Cómo se conecta todo (${esc(per.rango)}): cada color es un tablero, el punto crece con la energía y el % es su parte del total. Toca cualquiera para preguntar por él.</p>
+        ${this.graficos.map(g => `<div class="chart d-sankey" data-chart="${g.id}" style="height:${g.alto}px" role="img" aria-label="Mapa de conexiones de ${esc(m.raiz.nombre)}"></div>`).join('')}
+        <div class="d-sel"><small>Seleccionado</small><b>${esc(sel.nombre)}</b><span class="num">${esc(energiaTxt(ks.total))}</span>
+          <span class="fila">${padre ? `${pct(ks.total / (calc(m, padre, per).total || 1))} de ${esc(padre.nombre)} · ` : sel.fuera ? 'Fuera del total · ' : ''}${deltaHtml(ks.delta, per.fraseComp)}</span>
+          <span class="btns"><button class="d-btn pri" data-act="d-chip" data-v="resumen" data-k="d-sel-preg">¿Cómo va?</button>${sel !== m.raiz ? `<button class="d-btn" data-act="foco" data-v="sede" data-k="d-sel-sede">Ver toda la sede</button>` : ''}</span></div>
+        <p class="d-leyenda">${esc(c.metodo || '')} Las líneas punteadas son energía sin medidor propio.</p>
+      </aside>
+      <main class="d-chat">
+        <div class="d-log" aria-live="polite">${logDe().map(msgD).join('')}</div>
+        <div class="d-pie">
+          <div class="d-ctx">Hablando de: ${sel === m.raiz ? `<b>${esc(sel.nombre)}</b>` : `<button data-act="foco" data-v="sede" data-k="d-ctx" aria-label="Volver a toda la sede">${esc(sel.nombre)} ✕</button>`} · también puedes nombrar cualquier otro</div>
+          <form data-form="d-preguntar"><label class="sr" for="d-q">Tu pregunta</label><input id="d-q" data-k="d-q" autocomplete="off" placeholder="Pregunta por cualquier sede, tablero o circuito…"><button type="submit">Preguntar</button></form>
+          <div class="chips">${chips}</div>
+        </div>
+      </main></div>${aviso}</div>`;
+  },
+  montar(app) {
+    const T = TEMAS.D;
+    if (estado.D.vista === 'dashboard') dashD().forEach(sp => { const el = app.querySelector(`[data-chart="${sp.id}"]`); if (el) dibujar(el, sp, T); sp.nuevo = false; });
+    else {
+      this.graficos.forEach(g => { const el = app.querySelector(`[data-chart="${g.id}"]`); if (el) grafico(el, opcMapa(g.datos, T)); });
+      montarChat(app, T);
+    }
+    if (estado.D.aviso) {
+      const id = estado.D.aviso;
+      setTimeout(() => { if (estado.D.aviso === id) { estado.D.aviso = null; const a = $('.d-aviso'); if (a) a.remove(); const b = $('.d-badge'); if (b) b.classList.remove('pulsa'); } }, 4000);
+    }
+  },
+};
+</script>
+<script>
+'use strict';
+/* ------------------------- Eventos (delegados) e inicio ------------------------- */
+const SUAVE = REDUCIR ? 'auto' : 'smooth';
+function trasPreguntar() {
+  if (estado.variante === 'C') { const q = $('#c-q'); if (q) q.blur(); window.scrollTo({top: 0, behavior: SUAVE}); }
+  else if (estado.variante === 'B') { const ms = $$('.b-log .msg'); if (ms.length) ms[ms.length - 1].scrollIntoView({block: 'nearest', behavior: SUAVE}); }
+}
+function quitar(id) {
+  const v = estado.variante;
+  if (v === 'A') quitarDe(widgetsA(), id); else if (v === 'D') quitarDe(dashD(), id); else quitarDe(extraDe(v), id);
+  if (id.startsWith('f')) { const mid = id.slice(1).split('~')[0], msg = logDe().find(x => x.id === mid); if (msg) msg.fijado = false; }
+  if (estado.A.editando === id) estado.A.editando = null;
+  render();
+}
+/* Arrastrar y soltar (A): se toma por ⠿; la grilla se compacta sola (grid-auto-flow: dense). */
+let ARRASTRA = null, SUELTA = null;
+const limpiarDrop = () => $$('.drop-antes, .drop-despues').forEach(x => x.classList.remove('drop-antes', 'drop-despues'));
+document.addEventListener('dragstart', e => {
+  const asa = e.target.closest && e.target.closest('.a-asa');
+  if (!asa) return;
+  const card = asa.closest('.a-w');
+  ARRASTRA = card.dataset.w; SUELTA = null;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', ARRASTRA);
+  try { e.dataTransfer.setDragImage(card, 28, 24); } catch (_) { /* navegadores sin setDragImage */ }
+  requestAnimationFrame(() => card.classList.add('arrastrando'));
+});
+document.addEventListener('dragover', e => {
+  if (!ARRASTRA) return;
+  const card = e.target.closest && e.target.closest('.a-w[data-w]');
+  limpiarDrop();
+  if (!card || card.dataset.w === ARRASTRA) { SUELTA = null; return; }
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const r = card.getBoundingClientRect(), fila = r.width > card.parentElement.clientWidth * 0.9;
+  const antes = fila ? e.clientY < r.top + r.height / 2 : e.clientX < r.left + r.width / 2;
+  card.dataset.lado = fila ? 'v' : 'h';
+  card.classList.add(antes ? 'drop-antes' : 'drop-despues');
+  SUELTA = {id: card.dataset.w, antes};
+});
+document.addEventListener('drop', e => {
+  if (!ARRASTRA) return;
+  e.preventDefault();
+  const s = SUELTA, id = ARRASTRA;
+  ARRASTRA = SUELTA = null;
+  if (s) moverA(id, s.id, s.antes);
+});
+document.addEventListener('dragend', () => {
+  ARRASTRA = SUELTA = null; limpiarDrop();
+  $$('.a-w.arrastrando').forEach(x => x.classList.remove('arrastrando'));
+});
+document.addEventListener('click', e => {
+  const p = e.target.closest('[data-p]');
+  if (p) {
+    if (p.dataset.p === 'prev') cambiarVariante(-1);
+    else if (p.dataset.p === 'next') cambiarVariante(1);
+    else if (p.dataset.p === 'cliente' && p.dataset.v !== estado.cliente) {
+      estado.cliente = p.dataset.v; estado.foco = 'sede'; estado.A.editando = null; render();
+    }
+    return;
+  }
+  const el = e.target.closest('[data-act]');
+  if (!el || el.disabled) return;
+  const v = el.dataset.v, enDrop = !!el.closest('.c-drop');
+  switch (el.dataset.act) {
+    case 'periodo': estado.periodo = v; render(); break;
+    case 'foco': irA(v); break;
+    case 'chip': preguntar(null, v); trasPreguntar(); break;
+    case 'c-libre': { const q = $('#c-q'); preguntar(q ? q.value.trim() : ''); trasPreguntar(); break; }
+    case 'fijar': fijar(v); break;
+    case 'quitar': quitar(v); break;
+    case 'editar': estado.A.editando = estado.A.editando === v ? null : v; render(); break;
+    case 'chat':
+      estado.A.chat = !estado.A.chat; render();
+      (estado.A.chat ? $('#a-q') : $('[data-k="chat-abrir"]'))?.focus();
+      break;
+    case 'c-cerrar': { const msg = logDe().find(x => x.id === v); if (msg) msg.oculto = true; render(); break; }
+    case 'a-add': estado.A.paleta = !estado.A.paleta; render(); break;
+    case 'a-nuevo': {
+      const sp = {id: `n${++SEQ}-${v}`, tipo: v, span: A_SPAN[v] || 6, nuevo: true};
+      if (v === 'diario') sp.grafico = 'bar';
+      if (v === 'reparto') sp.grafico = 'dona';
+      widgetsA().push(sp); estado.A.paleta = false; render();
+      const w = document.querySelector(`[data-w="${sp.id}"]`);
+      if (w) w.scrollIntoView({behavior: SUAVE, block: 'center'});
+      sp.nuevo = false;
+      break;
+    }
+    case 'a-reset': delete estado.A.lay[`${estado.cliente}:${estado.foco}`]; estado.A.editando = null; render(); break;
+    case 'a-mover': moverPaso(v, +el.dataset.paso); break;
+    case 'd-vista': estado.D.vista = v; estado.D.aviso = null; render(); window.scrollTo(0, 0); break;
+    case 'd-chip': preguntarD(null, v); break;
+    case 'd-alt': {
+      const msg = logDe().find(x => x.id === v);
+      if (msg) { msg.spec = conAlternativa(msg.spec, el.dataset.alt); msg.fijado = false; render(); }
+      break;
+    }
+    case 'd-alt-w': {
+      const L = dashD(), i = L.findIndex(x => x.id === v);
+      if (i >= 0) { L[i] = {...conAlternativa(L[i], el.dataset.alt), id: L[i].id, span: L[i].span, fijado: true}; render(); }
+      break;
+    }
+    case 'd-ancho': {
+      const sp = dashD().find(x => x.id === v), s = [4, 6, 8, 12];
+      if (sp) { sp.span = s[(s.indexOf(sp.span || 6) + 1) % s.length]; render(); }
+      break;
+    }
+    case 'd-captura': capturarD(); break;
+    default: return;
+  }
+  if (enDrop) { const q = $('#c-q'); if (q) q.blur(); }
+});
+document.addEventListener('change', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  if (el.dataset.act === 'comparar') { estado.comparar = el.checked; render(); }
+  else if (el.dataset.act === 'ver') irA(el.value);
+  else if (el.dataset.act === 'w-campo') {
+    const sp = widgetsA().find(x => x.id === el.dataset.v);
+    if (!sp) return;
+    const campo = el.dataset.campo, val = el.value;
+    if (campo === 'span' || campo === 'n') sp[campo] = +val;
+    else if (val === '' || (campo === 'metrica' && val === 'kwh')) delete sp[campo];
+    else sp[campo] = val;
+    render();
+  }
+});
+document.addEventListener('submit', e => {
+  const f = e.target.closest('[data-form]');
+  if (!f) return;
+  e.preventDefault();
+  const input = f.querySelector('input'), txt = input.value.trim();
+  if (!txt) return;
+  if (f.dataset.form === 'preguntar') { preguntar(txt); trasPreguntar(); return; }
+  if (f.dataset.form === 'd-preguntar') { preguntarD(txt); return; }
+  // Barra de comandos (C): pregunta conocida → responde; nombre de tablero → navega; si no, pregunta libre.
+  const i = intencion(txt), m = modelo(estado.cliente), q = sinTildes(txt);
+  const n = i ? null : [...m.nodos.values()].find(x => sinTildes(x.nombre).includes(q));
+  if (n) { irA(n.id); const c = $('#c-q'); if (c) c.blur(); }
+  else { preguntar(txt, i); trasPreguntar(); }
+});
+document.addEventListener('input', e => { if (e.target.id === 'c-q') dropC(e.target); });
+document.addEventListener('focusin', e => { if (e.target.id === 'c-q') dropC(e.target); });
+document.addEventListener('focusout', e => {
+  const cmd = e.target.closest && e.target.closest('.c-cmd');
+  if (cmd && !cmd.contains(e.relatedTarget)) { const d = $('#c-drop'); if (d) d.hidden = true; }
+});
+document.addEventListener('mousedown', e => { if (e.target.closest('.c-drop')) e.preventDefault(); });
+document.addEventListener('keydown', e => {
+  const t = e.target, escribe = t.closest && t.closest('input, textarea, select, [contenteditable]');
+  const asa = t.closest && t.closest('.a-asa');
+  if (asa && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    moverPaso(asa.dataset.v, e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 1);
+    e.preventDefault();
+    return;
+  }
+  const drop = $('#c-drop');
+  if (drop && !drop.hidden && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && t.closest && t.closest('.c-cmd')) {
+    const bs = $$('button', drop), i = bs.indexOf(document.activeElement);
+    const j = e.key === 'ArrowDown' ? (i + 1) % bs.length : (i <= 0 ? bs.length - 1 : i - 1);
+    if (bs[j]) bs[j].focus();
+    e.preventDefault();
+    return;
+  }
+  if (e.key === 'Escape') {
+    if (drop && !drop.hidden) { drop.hidden = true; const q = $('#c-q'); if (q) q.blur(); }
+    else if (estado.variante === 'A' && estado.A.chat) { estado.A.chat = false; render(); $('[data-k="chat-abrir"]')?.focus(); }
+    return;
+  }
+  if (escribe || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === 'ArrowLeft') { cambiarVariante(-1); e.preventDefault(); }
+  else if (e.key === 'ArrowRight') { cambiarVariante(1); e.preventDefault(); }
+  else if (e.key === '/' && estado.variante === 'C') { const q = $('#c-q'); if (q) { q.focus(); e.preventDefault(); } }
+});
+
+if (!D) {
+  $('#proto').hidden = true;
+  $('#app').innerHTML = `<div class="vacio"><h1>Prototipo del dashboard</h1>
+    <p>Esta es la plantilla, sin datos. Para verla con los datos reales de Sanna y Oechsle (solo lectura en producción):</p>
+    <pre>python scripts/prototype_dashboard.py</pre><p>El resultado queda en <code>analisis/prototype_dashboard.html</code>.</p></div>`;
+} else {
+  estado.A.lay ||= {};
+  render();
+  // Los gráficos miden sus etiquetas al dibujarse: al llegar las fuentes web, se vuelven a dibujar.
+  if (document.fonts && document.fonts.status !== 'loaded') document.fonts.ready.then(() => render());
+}
+</script>
+</body>
+</html>
