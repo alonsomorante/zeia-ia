@@ -28,8 +28,14 @@ Reglas:
   que dejaron de monitorear, puntos que nunca transmitieron) no aparece, ni
   las empresas de prueba (monitor.EXCLUIR).
 
+Con `dia` arma la misma foto de un día YA TERMINADO, de 00:00 a 24:00 (la
+foto de cierre que el bot manda sola: src/foto_cierre.py). El estado es el
+del final de ese día: "sin datos al cierre" si lo terminó sin datos; un
+atraso corto al final cuenta como un corte más.
+
     from src.foto_salas import foto_peores
     foto = foto_peores("energia")    # foto.png (bytes o None), foto.caption
+    foto = foto_peores("energia", dia=date(2026, 10, 27))    # ese día completo
 """
 from __future__ import annotations
 
@@ -210,14 +216,22 @@ def ordenar(filas: list) -> list:
     return sorted(filas, key=lambda f: (f.gravedad, round(f.cobertura, 1), f.tienda, f.nombre))
 
 
-def armar_filas(modulo: str, unidades: list, n: int, ref: datetime) -> list:
-    """Una fila por sala (ambiental: su peor sensor), equipo o medidor."""
+def armar_filas(modulo: str, unidades: list, n: int, ref: datetime,
+                cerrado: bool = False) -> list:
+    """Una fila por sala (ambiental: su peor sensor), equipo o medidor.
+
+    `cerrado` = día ya terminado: un atraso al cierre no es "con atraso" sino
+    un corte más (el hueco del final ya está en `falta`).
+    """
     evaluadas = []
     for u in unidades:
         falta = minutos_sin_datos(u.presentes, n, u.cadencia)
         antig = (None if u.ultima is None
                  else max(0.0, (ref - u.ultima).total_seconds() / 60))
-        evaluadas.append((u, falta, antig, estado_de(antig, u.cadencia)))
+        est = estado_de(antig, u.cadencia)
+        if cerrado and est == "atrasado":
+            est = "ok"
+        evaluadas.append((u, falta, antig, est))
 
     filas = []
     if modulo == "ambiental":
@@ -280,11 +294,21 @@ def _fecha(dia: str) -> str:
     return f"{DIAS[d.weekday()]} {d.day} {MESES[d.month - 1]}"
 
 
-def detalle(f: Fila, dia: str) -> str:
-    """Qué pasó, en una frase corta."""
+def detalle(f: Fila, dia: str, cierre: Optional[int] = None) -> str:
+    """Qué pasó, en una frase corta.
+
+    `cierre` (día ya terminado) = minuto del día hasta el que se mide (1440 =
+    24:00): "sin datos" dice cómo terminó el día, no cuánto hace.
+    """
     if f.estado == "caido":
         if f.ultima is None:
             return "sin lecturas"
+        if cierre is not None:
+            ult = f.ultima.astimezone(LIMA)
+            if ult.date().isoformat() != dia:
+                return f"sin datos en todo el día (desde {_cuando(f.ultima, dia)})"
+            sin = max(0, cierre - (ult.hour * 60 + ult.minute))
+            return f"sin datos de {ult:%H:%M} a {_hhmm(cierre)} ({_dur(sin)})"
         return f"sin datos desde {_cuando(f.ultima, dia)} (hace {_dur(f.antig or 0)})"
     if f.estado == "atrasado":
         return f"última lectura a {_cuando(f.ultima, dia)} (hace {_dur(f.antig or 0)})"
@@ -299,6 +323,9 @@ def detalle(f: Fila, dia: str) -> str:
 def _no_en_vivo(fuente: dict) -> str:
     max_g = fuente.get("max_global")
     t = datetime.fromisoformat(max_g) if max_g else None
+    if fuente.get("cerrado"):
+        return (f"La base no recibe datos desde {_cuando(t, fuente['dia'])}: "
+                "el día se muestra hasta esa hora.")
     return (f"La base no está en vivo: su última lectura es {_cuando(t, '')}. "
             "Se muestra ese día.")
 
@@ -306,8 +333,16 @@ def _no_en_vivo(fuente: dict) -> str:
 def caption(modulo: str, filas: list, fuente: dict, max_filas: int = MAX_FILAS) -> str:
     """Texto del mensaje (≤1,024 caracteres): resumen y lo que no entra en la imagen."""
     m = MODULOS[modulo]
-    dia, ahora = fuente["dia"], _hhmm(max(0, int(fuente["min_actual"])))
-    cuando = f"{_fecha(dia)} hasta {ahora}" if fuente.get("congelada") else f"hoy {ahora}"
+    dia, n_min = fuente["dia"], max(0, int(fuente["min_actual"]))
+    cerrado = bool(fuente.get("cerrado"))
+    if cerrado:
+        cuando = f"cierre del {_fecha(dia)}"
+    elif fuente.get("congelada"):
+        cuando = f"{_fecha(dia)} hasta {_hhmm(n_min)}"
+    else:
+        cuando = f"hoy {_hhmm(n_min)}"
+    periodo = "en todo el día" if cerrado else "hoy"
+    cierre = n_min if cerrado else None
     lineas = [f"{m['icono']} {m['titulo']} · {cuando}"]
     if fuente.get("congelada"):
         lineas.append("⚠️ " + _no_en_vivo(fuente))
@@ -318,10 +353,10 @@ def caption(modulo: str, filas: list, fuente: dict, max_filas: int = MAX_FILAS) 
         return "\n".join(lineas)
     if not problemas:
         if total == 1:
-            lineas.append(f"✅ Todo bien: {m['el']} {m['una']} envió datos sin cortes hoy.")
+            lineas.append(f"✅ Todo bien: {m['el']} {m['una']} envió datos sin cortes {periodo}.")
         else:
             lineas.append(f"✅ Todo bien: {m['los']} {total} {m['varias']} enviaron datos "
-                          "sin cortes hoy.")
+                          f"sin cortes {periodo}.")
         return "\n".join(lineas)
     lineas.append(f"{len(problemas)} de {total} {m['varias']} con problemas · "
                   f"✅ {total - len(problemas)} bien")
@@ -330,7 +365,7 @@ def caption(modulo: str, filas: list, fuente: dict, max_filas: int = MAX_FILAS) 
         lineas.append(f"⚠️ No entran en la imagen ({len(resto)}):")
         texto = "\n".join(lineas)
         for i, f in enumerate(resto):
-            linea = f"{ICONO[f.gravedad]} {f.nombre} ({f.tienda}): {detalle(f, dia)}"
+            linea = f"{ICONO[f.gravedad]} {f.nombre} ({f.tienda}): {detalle(f, dia, cierre)}"
             cola = f"\n… y {len(resto) - i} más"
             if len(texto) + 1 + len(linea) + len(cola) > 1024:
                 return texto + cola
@@ -395,9 +430,15 @@ def html_foto(modulo: str, filas: list, fuente: dict, generado: datetime,
     e = html.escape
     m = MODULOS[modulo]
     dia, n_min = fuente["dia"], max(0, int(fuente["min_actual"]))
+    cerrado = bool(fuente.get("cerrado"))
     problemas = [f for f in filas if f.gravedad < 3]
     mostradas, resto = problemas[:max_filas], problemas[max_filas:]
-    cuando = _fecha(dia) if fuente.get("congelada") else "Hoy, " + _fecha(dia)
+    if cerrado:
+        cuando = "Cierre del " + _fecha(dia)
+    elif fuente.get("congelada"):
+        cuando = _fecha(dia)
+    else:
+        cuando = "Hoy, " + _fecha(dia)
 
     partes = [f'<div id="foto"><h1>{e(m["titulo"])} · {e(m["varias"])} con problemas</h1>',
               f'<div class="subt">{e(cuando)} · de 00:00 a {_hhmm(n_min)} (hora Lima)</div>']
@@ -406,7 +447,9 @@ def html_foto(modulo: str, filas: list, fuente: dict, generado: datetime,
 
     cuenta = Counter(f.gravedad for f in filas)
     chips = [(f"{len(filas)} {m['varias']}", "#e6edf3")]
-    for g, txt in ((0, "sin datos ahora"), (1, "con atraso"), (2, "con cortes hoy")):
+    estados = ((0, "sin datos al cierre" if cerrado else "sin datos ahora"), (1, "con atraso"),
+               (2, "con cortes" if cerrado else "con cortes hoy"))
+    for g, txt in estados:
         if cuenta[g]:
             chips.append((f"{cuenta[g]} {txt}", COLOR[g]))
     chips.append((f"{cuenta[3]} bien", COLOR[3]))
@@ -419,7 +462,7 @@ def html_foto(modulo: str, filas: list, fuente: dict, generado: datetime,
     lineas = "".join(f'<b style="left:{h / 24 * 100:.3f}%"></b>' for h in range(3, 24, 3))
     for f in mostradas:
         celdas = "".join(f'<i class="{t}"></i>' for t in tramos(f.falta))
-        det = detalle(f, dia)
+        det = detalle(f, dia, n_min if cerrado else None)
         partes.append(
             '<div class="fila">'
             f'<div class="nom"><span class="dot" style="background:{COLOR[f.gravedad]}"></span>'
@@ -438,15 +481,20 @@ def html_foto(modulo: str, filas: list, fuente: dict, generado: datetime,
         partes.append(f'<div class="mas"><b>{e(titulo)}</b> {e(_lista_corta(resto))}. '
                       "El detalle va en el mensaje.</div>")
 
+    ley = ['<span><i class="ok"></i>Llegaron lecturas</span>',
+           '<span><i class="parcial"></i>Hubo cortes en esos 10 min</span>',
+           '<span><i class="falta"></i>No llegó nada</span>']
+    if n_min < 1440:          # día completo (cierre): no hay tramos grises
+        gris = "La base ya no recibía datos" if cerrado else "Todavía no pasa"
+        ley.append(f'<span><i class="futuro"></i>{gris}</span>')
+    gen = generado.astimezone(LIMA)
+    hecho = (f"el {gen.day:02d}-{MESES[gen.month - 1]} {gen:%H:%M}" if cerrado
+             else f"a las {gen:%H:%M}")
     partes.append(
-        '<div class="ley">'
-        '<span><i class="ok"></i>Llegaron lecturas</span>'
-        '<span><i class="parcial"></i>Hubo cortes en esos 10 min</span>'
-        '<span><i class="falta"></i>No llegó nada</span>'
-        '<span><i class="futuro"></i>Todavía no pasa</span></div>'
+        '<div class="ley">' + "".join(ley) + '</div>'
         f'<div class="pie">Solo aparecen {m["los"]} {m["varias"]} con problemas, de peor a mejor · '
-        f'{m["regla"]} · % = parte del día con datos · tramos de 10 min · generado a las '
-        f'{generado.astimezone(LIMA):%H:%M}</div></div>')
+        f'{m["regla"]} · % = parte del día con datos · tramos de 10 min · generado {hecho}'
+        '</div></div>')
     return ('<!doctype html><html lang="es"><head><meta charset="utf-8"><style>'
             + _CSS.replace("__ANCHO__", str(ANCHO_PX)) + "</style></head><body>"
             + "".join(partes) + "</body></html>")
@@ -504,31 +552,64 @@ _ULTIMA = {
 }
 
 
-def ultimas_lecturas(modulo: str, ids: list, ref: datetime) -> dict:
-    """{uid: última lectura} de los que reportaron en los últimos DIAS_ACTIVO días."""
+def ultimas_lecturas(modulo: str, ids: list, ref: datetime,
+                     fin: Optional[datetime] = None) -> dict:
+    """{uid: última lectura} de los que reportaron en los DIAS_ACTIVO días antes de `ref`.
+
+    `fin` (exclusivo): por defecto ref + 1 min (en vivo entra el minuto en curso).
+    """
     if not ids:
         return {}
     rows = _consulta(BASE_DE[modulo], _ULTIMA[modulo],
                      {"ids": [int(i) for i in ids],
                       "desde": ref - timedelta(days=DIAS_ACTIVO),
-                      "fin": ref + timedelta(minutes=1)})
+                      "fin": fin if fin is not None else ref + timedelta(minutes=1)})
     return {r[0]: r[1] for r in rows if r[1] is not None}
 
 
-def _cargar_monitor(modulo: str) -> tuple:
-    """Energía o ambiental: inventario y estado del monitor en vivo + minutos de hoy."""
+def _dia_cerrado(dia: date, maxg: Optional[datetime],
+                 ahora: Optional[datetime] = None) -> tuple:
+    """(fuente, ref, n, ini, fin) de un día que ya terminó: de 00:00 a 24:00 (hora Lima).
+
+    `maxg` = última lectura de la base. Si la base dejó de recibir datos más de
+    monitor.CONGELADA_MIN antes de las 24:00, el día se mide hasta esa lectura
+    y la foto lo advierte (como en vivo).
+    """
+    ini = datetime(dia.year, dia.month, dia.day, tzinfo=LIMA)
+    fin = ini + timedelta(days=1)
+    fecha = _fecha(dia.isoformat())
+    if (ahora or datetime.now(timezone.utc)) < fin:
+        raise ValueError(f"El {fecha} todavía no termina: para hoy, la foto va sin `dia`.")
+    if maxg is None or maxg <= ini:
+        previa = f" (su última lectura es {_cuando(maxg, '')})" if maxg else ""
+        raise RuntimeError(f"La base no tiene datos del {fecha}{previa}.")
+    congelada = maxg < fin - timedelta(minutes=monitor.CONGELADA_MIN)
+    ref = maxg if congelada else fin
+    n = max(1, min(1440, int((ref - ini).total_seconds() // 60)))
+    fuente = {"dia": dia.isoformat(), "min_actual": n, "congelada": congelada,
+              "cerrado": True, "max_global": maxg.isoformat(), "ref": ref.isoformat()}
+    return fuente, ref, n, ini, fin
+
+
+def _cargar_monitor(modulo: str, dia: Optional[date] = None) -> tuple:
+    """Energía o ambiental: inventario y estado del monitor en vivo + minutos de hoy.
+
+    Con `dia` (ya terminado): ese día completo (_cargar_monitor_cerrado).
+    """
     est = monitor.estado(modulo)
+    if dia is not None:
+        return _cargar_monitor_cerrado(modulo, est, dia)
     fuente = est["fuente"]
     ref = datetime.fromisoformat(fuente["ref"])
-    dia, n = fuente["dia"], max(1, int(fuente["min_actual"]))   # sin el minuto en curso
+    hoy, n = fuente["dia"], max(1, int(fuente["min_actual"]))   # sin el minuto en curso
     activos = [u for u in est["unidades"] if u["estado"] != "inactivo"]
     con_datos = [u for u in activos if u["min_ventana"]]
     previas = ultimas_lecturas(modulo, [u["uid"] for u in activos if not u["min_ventana"]], ref)
     pres: dict = {}
     if con_datos:
-        lect = monitor.lecturas(modulo, [u["uid"] for u in con_datos], dia, dia)
+        lect = monitor.lecturas(modulo, [u["uid"] for u in con_datos], hoy, hoy)
         for r in lect["rows"]:
-            if r["dia"] == dia:
+            if r["dia"] == hoy:
                 pres.setdefault(r["uid"], set()).add(r["hora"] * 60 + r["minuto"])
     unidades = []
     for u in activos:
@@ -539,6 +620,37 @@ def _cargar_monitor(modulo: str) -> tuple:
         else:
             continue          # nada en DIAS_ACTIVO días: no se está monitoreando
         p = pres.get(u["uid"], set())
+        unidades.append(Unidad(u["uid"], u["tienda"], u["grupo"] or "", u["nombre"] or "", p,
+                               cadencia_observada(p, u.get("cadencia_min") or 1), ultima))
+    return fuente, ref, n, unidades
+
+
+def _cargar_monitor_cerrado(modulo: str, est: dict, dia: date) -> tuple:
+    """Un día ya terminado: el inventario de hoy con las lecturas de ese día.
+
+    Entra lo que reportó ese día y lo activo que reportó en los DIAS_ACTIVO
+    días previos: la misma regla que en vivo, aplicada al final de ese día.
+    """
+    maxg = est["fuente"].get("max_global")
+    fuente, ref, n, ini, fin = _dia_cerrado(dia, datetime.fromisoformat(maxg) if maxg else None)
+    todas = est["unidades"]
+    pres: dict = {}
+    if todas:
+        lect = monitor.lecturas(modulo, [u["uid"] for u in todas], fuente["dia"], fuente["dia"])
+        for r in lect["rows"]:
+            if r["dia"] == fuente["dia"]:
+                pres.setdefault(r["uid"], set()).add(r["hora"] * 60 + r["minuto"])
+    previas = ultimas_lecturas(modulo, [u["uid"] for u in todas
+                                        if u["activo"] and u["uid"] not in pres], ref, fin=fin)
+    unidades = []
+    for u in todas:
+        p = pres.get(u["uid"], set())
+        if p:
+            ultima = ini + timedelta(minutes=max(p))
+        elif u["activo"] and u["uid"] in previas:
+            ultima = previas[u["uid"]]
+        else:
+            continue          # inactivo, o nada en DIAS_ACTIVO días: no se monitoreaba
         unidades.append(Unidad(u["uid"], u["tienda"], u["grupo"] or "", u["nombre"] or "", p,
                                cadencia_observada(p, u.get("cadencia_min") or 1), ultima))
     return fuente, ref, n, unidades
@@ -578,25 +690,31 @@ _RITMO_AGUA = """
 """
 
 
-def _cargar_agua() -> tuple:
-    """Medidores de agua: inventario, última lectura y minutos de hoy."""
+def _cargar_agua(dia: Optional[date] = None) -> tuple:
+    """Medidores de agua: inventario, última lectura y minutos de hoy.
+
+    Con `dia` (ya terminado): ese día completo, de 00:00 a 24:00.
+    """
     maxg = _consulta("energia", "SELECT max(created_at) FROM readings_reading")[0][0]
-    ahora = datetime.now(timezone.utc)
-    congelada = maxg is not None and (ahora - maxg) > timedelta(minutes=monitor.CONGELADA_MIN)
-    ref = maxg if congelada else ahora
-    rl = ref.astimezone(LIMA)
-    ini = datetime(rl.year, rl.month, rl.day, tzinfo=LIMA)
-    n = max(1, rl.hour * 60 + rl.minute)
-    fuente = {"dia": rl.date().isoformat(), "min_actual": n, "congelada": congelada,
-              "max_global": maxg.isoformat() if maxg else None, "ref": ref.isoformat()}
+    if dia is None:
+        ahora = datetime.now(timezone.utc)
+        congelada = maxg is not None and (ahora - maxg) > timedelta(minutes=monitor.CONGELADA_MIN)
+        ref = maxg if congelada else ahora
+        rl = ref.astimezone(LIMA)
+        ini = datetime(rl.year, rl.month, rl.day, tzinfo=LIMA)
+        fin = ref + timedelta(minutes=1)
+        n = max(1, rl.hour * 60 + rl.minute)
+        fuente = {"dia": rl.date().isoformat(), "min_actual": n, "congelada": congelada,
+                  "max_global": maxg.isoformat() if maxg else None, "ref": ref.isoformat()}
+    else:
+        fuente, ref, n, ini, fin = _dia_cerrado(dia, maxg)
     inv = [r for r in _consulta("energia", _INV_AGUA)
            if (r.empresa or "").strip().lower() not in monitor.EXCLUIR]
-    ultimas = ultimas_lecturas("agua", [r.uid for r in inv], ref)
+    ultimas = ultimas_lecturas("agua", [r.uid for r in inv], ref, fin=fin)
     ids = [r.uid for r in inv if r.uid in ultimas]
     pres: dict = {}
     ritmo: dict = {}
     if ids:
-        fin = ref + timedelta(minutes=1)
         for r in _consulta("energia", _DIA_AGUA, {"ids": ids, "ini": ini, "fin": fin}):
             pres.setdefault(r.uid, set()).add(r.hora * 60 + r.minuto)
         ritmo = {r.uid: int(r.minutos) for r in _consulta(
@@ -613,8 +731,8 @@ def _cargar_agua() -> tuple:
     return fuente, ref, n, unidades
 
 
-_CARGAR = {"ambiental": lambda: _cargar_monitor("ambiental"),
-           "energia": lambda: _cargar_monitor("energia"),
+_CARGAR = {"ambiental": lambda dia=None: _cargar_monitor("ambiental", dia),
+           "energia": lambda dia=None: _cargar_monitor("energia", dia),
            "agua": _cargar_agua}
 
 
@@ -628,12 +746,15 @@ class Foto:
     problemas: list              # solo las que tienen problemas
 
 
-def foto_peores(modulo: str, max_filas: int = MAX_FILAS) -> Foto:
-    """Consulta en vivo el módulo y arma la foto con lo peor de hoy."""
+def foto_peores(modulo: str, max_filas: int = MAX_FILAS, dia: Optional[date] = None) -> Foto:
+    """Consulta en vivo el módulo y arma la foto con lo peor de hoy.
+
+    Con `dia` (un día ya terminado) la foto es de ese día completo, de 00:00 a 24:00.
+    """
     if modulo not in MODULOS:
         raise ValueError(f"Módulo desconocido: {modulo!r}. Usa {list(MODULOS)}.")
-    fuente, ref, n, unidades = _CARGAR[modulo]()
-    filas = armar_filas(modulo, unidades, n, ref)
+    fuente, ref, n, unidades = _CARGAR[modulo](dia)
+    filas = armar_filas(modulo, unidades, n, ref, cerrado=bool(fuente.get("cerrado")))
     problemas = [f for f in filas if f.gravedad < 3]
     texto = caption(modulo, filas, fuente, max_filas)
     if not problemas:

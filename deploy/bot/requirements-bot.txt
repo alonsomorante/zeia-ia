@@ -1,0 +1,8 @@
+# Solo lo que usa el bot de Telegram (scripts/telegram_bot.py y sus módulos de
+# src/). Versiones fijas: las mismas con que se probó. Sin openai ni fastapi.
+SQLAlchemy==2.0.51
+psycopg2-binary==2.9.12
+python-dotenv==1.2.2
+sqlparse==0.5.5
+httpx==0.28.1
+playwright==1.62.0

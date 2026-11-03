@@ -27,6 +27,17 @@ como fallas. Si una empresa tiene varias sedes en la página, cada grupo de la
 tabla lleva el nombre de su sede.
 No agrupa por gateway: esa asignación no está en la base de datos.
 
+Lo inactivo o desactivado en la plataforma no entra, aunque haya enviado
+datos: en energía cuentan el punto, su dispositivo, su tablero y su sede
+(is_active); en agua, el medidor, su tubería y su sede (is_active); en
+ambiental, el sensor, su dispositivo y su sala (is_activated).
+
+Un medidor de agua dependiente (dependency) no tiene equipo propio: sus
+lecturas se calculan de las de su medidor fuente (dependency_point_id), así que
+los dos tienen siempre la misma conectividad. Sale una sola fila, la del
+dependiente, medida con las lecturas de la fuente, y la fuente no se muestra
+(Barranco se mide con el medidor de SITE Barranco).
+
 En ambiental, la columna "Batería" muestra la del dispositivo de cada sala: el
 último valor que reportó hasta el cierre del rango (historial de uplinks,
 buscando hasta 4 semanas antes), en rojo bajo el 20%, y "—" si no reportó. Si
@@ -118,6 +129,7 @@ SQL_INV_ENERGIA = """
     JOIN enterprises_electricalpanel ep ON ep.id = d.electrical_panel_id
     JOIN enterprises_energyheadquarter eh ON eh.id = ep.energy_headquarter_id
     JOIN enterprises_enterprise e ON e.id = eh.enterprise_id
+    WHERE mp.is_active AND d.is_active AND ep.is_active AND eh.is_active
 """
 
 # Solo filas con contador EPpos (criterio de analisis_huecos.py y del monitor)
@@ -149,6 +161,7 @@ SQL_INV_AMBIENTAL = """
     JOIN enterprise_room r ON r.id = d.room_id
     JOIN enterprise_headquarters hq ON hq.id = r.headquarter_id
     JOIN enterprise_enterprise f ON f.id = hq.enterprise_id
+    WHERE rd.is_activated AND d.is_activated AND r.is_activated
 """
 
 SQL_DIAS_AMBIENTAL = """
@@ -170,14 +183,17 @@ SQL_PREVIOS_AMBIENTAL = """
 
 # Agua (base energy): sede → tubería (enterprises_waterpipe) → medidor
 # (enterprises_measurementpointwater). El medidor guarda dev_eui_password
-# (credencial del dispositivo): no se lee.
+# (credencial del dispositivo): no se lee. depende_de = medidor fuente de un
+# medidor dependiente (ver con_dependencias).
 SQL_INV_AGUA = """
     SELECT e.name AS empresa, eh.name AS sede, wp.name AS tuberia, mw.id AS uid,
-           mw.name AS nombre, COALESCE(mw.is_main, false) AS principal
+           mw.name AS nombre, COALESCE(mw.is_main, false) AS principal,
+           CASE WHEN mw.dependency THEN mw.dependency_point_id END AS depende_de
     FROM enterprises_measurementpointwater mw
     JOIN enterprises_waterpipe wp ON wp.id = mw.water_pipe_id
     JOIN enterprises_energyheadquarter eh ON eh.id = wp.energy_headquarter_id
     JOIN enterprises_enterprise e ON e.id = eh.enterprise_id
+    WHERE mw.is_active AND wp.is_active AND eh.is_active
 """
 
 # Solo filas con contador (consumo_litros), como EPpos en energía
@@ -326,6 +342,39 @@ def cargar_ritmos_agua(inv: list, cnt: dict, previos: set, dias: list[date]) -> 
     return {uid: max(1, round(1440 / float(minutos)))
             for uid, minutos in consultar(BASE_DE["agua"], SQL_RITMO_AGUA,
                                           ids=ids, ini=ini, fin=fin)}
+
+
+def con_dependencias(datos_agua: tuple, ritmos: dict) -> tuple[tuple, dict]:
+    """Medidores de agua dependientes: no tienen equipo propio (sus lecturas se
+    calculan de las de su fuente), así que cada dependiente se mide con las
+    lecturas, el ritmo y el estado (semanas previas, recién instalado) de su
+    fuente, y la fuente deja de mostrarse: sale una sola fila, la del
+    dependiente. Si la fuente no está en el inventario (inactiva o borrada), el
+    dependiente se mide con sus propias lecturas.
+
+    `datos_agua` = (inv, cnt, previos, nuevos) de cargar("agua") y `ritmos` =
+    salida de cargar_ritmos_agua; devuelve ambos ya ajustados."""
+    inv, cnt, previos, nuevos = datos_agua
+    ids = {r.uid for r in inv}
+    fuente_de = {r.uid: r.depende_de for r in inv
+                 if r.depende_de is not None and r.depende_de != r.uid
+                 and r.depende_de in ids}
+    if not fuente_de:
+        return datos_agua, ritmos
+    cnt2, ritmos2, previos2, nuevos2 = dict(cnt), dict(ritmos), set(previos), set(nuevos)
+    for dep, fuente in fuente_de.items():
+        for orig, ajust in ((cnt, cnt2), (ritmos, ritmos2)):
+            if fuente in orig:
+                ajust[dep] = orig[fuente]
+            else:
+                ajust.pop(dep, None)
+        for orig, ajust in ((previos, previos2), (nuevos, nuevos2)):
+            if fuente in orig:
+                ajust.add(dep)
+            else:
+                ajust.discard(dep)
+    fuentes = set(fuente_de.values())
+    return ([r for r in inv if r.uid not in fuentes], cnt2, previos2, nuevos2), ritmos2
 
 
 def cargar_baterias(inv: list, cnt: dict, previos: set, dias: list[date]) -> dict:
@@ -949,6 +998,7 @@ def main(argv: list[str] | None = None) -> int:
         baterias = cargar_baterias(inv_amb, cnt_amb, previos_amb, dias)
         inv_agua, cnt_agua, previos_agua, _ = datos["agua"]
         ritmos = cargar_ritmos_agua(inv_agua, cnt_agua, previos_agua, dias)
+        datos["agua"], ritmos = con_dependencias(datos["agua"], ritmos)
     finally:
         tunnel.close_tunnel()   # solo cierra túneles que abrió este proceso
     reportes, omitidas = armar_empresas(datos, dias, args.umbral, args.empresa,

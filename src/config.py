@@ -78,8 +78,10 @@ def get_db_config(base: str) -> DBConfig:
         raise ValueError(f"Base desconocida: {base!r}. Usa una de {list(DBS)}.")
 
 
-# OpenRouter
-OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+# OpenRouter (solo el chat: agent.py, webapp, cli, eval). Opcional para que el
+# bot de Telegram arranque sin ella; si falta, OpenAI(api_key=None) falla al
+# crear el agente con un error claro.
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or None
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Backward-compat: variables genéricas = ENERGÍA (comportamiento histórico)
@@ -135,3 +137,9 @@ if AVISOS_MODO not in ("apagado", "simular", "enviar"):
 AVISOS_HORARIO = os.getenv("AVISOS_HORARIO", "08:00-20:00").strip()   # 🟠 solo en este horario
 AVISOS_RESUMEN = os.getenv("AVISOS_RESUMEN", "08:00").strip()         # hora del resumen 🟡
 AVISOS_CICLO_MIN = _int_env("AVISOS_CICLO_MIN", 5)                    # cada cuánto se revisa
+
+# Foto de cierre del día (src/foto_cierre.py; la manda el bot de Telegram): a
+# esta hora (Lima) manda, sin sonido, las fotos de /ambiental, /energia y /agua
+# del día ANTERIOR completo (00:00–24:00). "apagado" la desactiva. No depende
+# de AVISOS_MODO: es la misma foto de los comandos, solo que llega sola.
+FOTO_CIERRE = os.getenv("FOTO_CIERRE", "00:10").strip()

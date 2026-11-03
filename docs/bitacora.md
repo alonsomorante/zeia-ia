@@ -2127,3 +2127,329 @@ conserva por los hallazgos de la base.
   "Agent skills" en AGENTS.md; solo docs): se integró con un merge.
 - Revisión de secretos antes de subir (101 archivos): solo valores de ejemplo
   en los `.env.example` y variables (`"${...}"`) en los `sync_db.sh`.
+
+
+## Sesión 27-oct-2026 — Bot de Telegram vuelto a levantar
+
+### Pedido
+- "Haz que funcione el bot".
+
+### Diagnóstico
+- El bot NO estaba corriendo: sin procesos python/ssh ni túneles abiertos; el
+  log terminaba el 21-oct 15:17 (arranque de esa sesión) sin errores → la PC
+  se apagó o reinició y nada lo vuelve a arrancar. `.env` completo (token,
+  id del grupo, túneles); `AVISOS_MODO` sin definir = simular. Código sin
+  cambios (árbol git limpio).
+
+### Hecho
+- Arrancado 10:27 con `scripts\telegram_bot.cmd` (oculto, PID cmd 9540):
+  "@zeia_alerts_bot escuchando", túneles ssh 55432 y 5435 arriba, sin 409 ni
+  errores de Telegram. Primer ciclo de avisos 10:28: 5 mensajes simulados
+  (agua de SITE Barranco y de Barranco sin datos desde el 23-oct, Sanna San
+  Borja, BK Salaverry TG-1, resumen del lunes 26).
+- Verificado sin mandar nada al grupo (script temporal que reutiliza los
+  túneles): `/ambiental` 7 de 13 salas con problemas (10.0 s), `/energia` 14
+  de 35 (9.1 s), `/agua` 2 de 3 (4.9 s); fotos bien armadas.
+
+### Hallazgos (fotos de hoy a las 10:29)
+- Sanna San Borja: corte desde antes de las 00:00 hasta ~09:50 (Tomógrafo,
+  Llave general TG-P1, Llave general TGA, Resonador; salas de tomografía,
+  ducto resonador y sala técnica). Zona Azul sin datos desde 06:18 y Zona
+  Verde desde 07:58. No se avisó: el bot estaba apagado (y en simulación no
+  envía).
+- Burger King Salaverry TG-1 cuenta otra vez como activo: tiene lecturas
+  hasta el 23-oct 11:59 (AGENTS.md lo da sin datos desde abril) → revisar.
+
+### Pendiente
+- Que arranque solo al prender la PC (propuesto: tarea programada al iniciar
+  sesión; falta el OK del usuario). Requiere la PC encendida y sin suspender.
+- `AVISOS_MODO=enviar` en `.env` cuando el equipo lo decida (lo cambia el
+  usuario) y reiniciar el bot. La simulación casi no corrió desde el 21-oct.
+
+
+### Pregunta: "/agua sale como que no llegó nada" (misma sesión)
+- Revisado en producción (solo lectura): la foto está bien. Los 2 medidores
+  que muestra no tienen lecturas desde el 23-oct; Jockey Plaza (id 2) reporta
+  normal cada 10 min (72 lecturas hoy hasta 11:53) y no sale porque está bien.
+- SITE Barranco (id 3): en toda la tabla solo 9 lecturas, 23-oct 02:10–05:40,
+  contador fijo en 350 L y `estado_tuberia = vacia`; batería 3.54 V normal,
+  RSSI −46/−56, SNR 7–14. Lo del 12 al 19-oct sigue borrado en la fuente.
+- Barranco (id 4): todas sus lecturas (11) son derivadas
+  (`derived_from_id = 7507`, la última del id 3): 23-oct 07:30–12:30 cada
+  30 min, siempre 315 L (= 90 % de 350, aunque `dependency_percentage = 10`).
+  `dependency_point_id = 3`, pero `dependency` pasó a **false** (el 21-oct era
+  true; `modified_at` 23-oct 13:01) → el motor de avisos ya no lo excluye
+  (filtra solo por `dependency`) y la foto nunca lo filtró (entra porque
+  tuvo lecturas en 30 días).
+- Propuesto (sin hacer, falta OK): tratar como dependiente todo medidor con
+  `dependency_point_id` en la foto y en los avisos ("depende de SITE
+  Barranco") y mostrar "tubería vacía" de la última lectura.
+
+
+### Página web (misma sesión)
+- A pedido: webapp levantada 12:32 con `scripts\webapp_en_vivo.cmd` (oculto,
+  PID cmd 17936), escucha en 0.0.0.0:8000 (sin login; en la red Wi-Fi como
+  http://192.168.18.12:8000). Reutiliza los túneles del bot. Verificado: `/`,
+  `/chat`, `/monitor` y `/api/models` 200; monitor en vivo (no congelado)
+  energía 87 unidades y ambiental 38, ~7 s cada uno; sin errores en
+  `logs\webapp.err.log`. No se probó el chat (gasta OpenRouter).
+- El bot tuvo cortes de conexión con Telegram (WinError 10054: 11:49, 11:57,
+  12:12, 12:23) y los túneles se relanzaron solos a las 12:26; se recuperó
+  solo cada vez.
+
+
+### Pregunta: "¿por qué Tablero General TG-1 sale sin datos?" (misma sesión)
+- Es el único punto de Burger King (punto 108, tablero 68, dispositivo 101
+  ADW210; punto y dispositivo `is_active = true`). Lecturas: normal hasta el
+  11-abr 00:14 (contador 7,454 kWh); 31-jul 13 lecturas en 0; **23-oct de
+  02:52 a 11:59** 528 lecturas con el contador desde **0** hasta 99.38 kWh
+  (reiniciado o equipo distinto). `devices_device.modified_at` = 23-oct
+  **12:00:21**: lo editaron justo después de la última lectura. El historial
+  crudo del tablero tiene los mismos 528 mensajes y nada después (el
+  historial de otros tableros sigue vivo): no es un error de proceso, ya no
+  llega nada.
+- Por qué sale: la foto (y los avisos) toman todo punto activo con alguna
+  lectura en 30 días (`DIAS_ACTIVO`); esas horas del 23-oct lo metieron.
+  Sale solo el 22-nov si nadie hace nada.
+- Corrección propuesta: si BK ya no se monitorea, marcar el punto como
+  inactivo en la plataforma (`monitor` y `avisos_datos` filtran
+  `mp.is_active`); si lo están reinstalando, es una falla real: revisar qué
+  se cambió el 23-oct 12:00 y el medidor en tienda.
+
+
+## Sesión 28-oct-2026 — Autoarranque del bot y la webapp
+
+### Pedido
+- "Puedes crear el servicio de autoarranque" (el OK al pendiente del 27-oct):
+  al iniciar sesión en la PC deben quedar corriendo el bot de Telegram y la
+  webapp en vivo, sin duplicar instancias.
+
+### Hecho
+- `scripts/autoarranque.vbs`: lanza ocultos `telegram_bot.cmd` y
+  `webapp_en_vivo.cmd` (8 s entre uno y otro para no competir por los túneles).
+  No duplica: consulta WMI por procesos con `telegram_bot.py` / `webapp.py`
+  (el candado 127.0.0.1:47831 no aparece en `netstat` porque solo hace
+  `bind()`, sin `listen()`). Log: `logs\autoarranque.log` (gitignored).
+- `scripts/instalar_autoarranque.ps1` + `.cmd`: registra la tarea
+  "ZEIA-IA autoarranque" con `Register-ScheduledTask` (no necesita admin),
+  trigger AtLogOn del usuario `LAPTOP-B20N7AM8\desar` con 30 s de retraso,
+  `MultipleInstances IgnoreNew`.
+- `schtasks /create /sc onlogon` devolvía "Acceso denegado" sin admin;
+  `Register-ScheduledTask` sí pudo. Quitar con
+  `schtasks /delete /tn "ZEIA-IA autoarranque" /f`.
+
+### Verificación
+- Con bot y webapp ya corriendo, `schtasks /run`: el log dijo "ya estaba
+  corriendo" para ambos y no aparecieron procesos nuevos.
+- Prueba completa 10:00: se detuvieron bot, webapp y túneles; `schtasks /run`
+  → bot 10:00:11, webapp 10:00:17; túneles 55432 y 5435 arriba; `/monitor` y
+  `/api/models` 200; `/api/monitor/estado?fresh=1` 87 unidades de energía y
+  38 de ambiental, en vivo (~6 s cada uno). Primer ciclo de avisos 10:01
+  (simulación, sin mensajes nuevos). `LastTaskResult = 0`.
+
+### Límites / pendiente
+- Corre solo al iniciar sesión del usuario `desar`; requiere la PC encendida
+  y sin suspender. No es watchdog: si un proceso muere después, no lo
+  reinicia.
+- `AVISOS_MODO` sigue en simular; cambiarlo a `enviar` cuando el equipo lo
+  decida (lo cambia el usuario) y reiniciar el bot.
+
+
+## Sesión 29-oct-2026 — Foto de cierre del día por Telegram
+
+### Pedido
+- "Que al final del día envíe la foto de la conectividad del día, de todo el
+  día", además de los comandos /energia, /agua y /ambiental.
+
+### Decisiones
+- Es la misma foto de los comandos (solo lo que tuvo problemas, de peor a
+  mejor), pero del día completo (00:00–24:00) y sin que nadie la pida.
+- Hora: 00:10 (`FOTO_CIERRE` en `.env`; `apagado` la desactiva). A esa hora el
+  día anterior ya terminó; va **sin sonido** (es de noche). Un módulo sin
+  problemas manda solo el texto "✅ Todo bien … en todo el día".
+- Si el bot estaba apagado a esa hora, manda el cierre apenas vuelve, solo el
+  del último día terminado (no acumula días). Lo enviado queda en
+  `data/foto_cierre.json` (gitignored): un reinicio no repite.
+- Es independiente de `AVISOS_MODO` (sigue en simular): es la foto de los
+  comandos, no un aviso.
+- Ojo: la PC se apaga de noche (el autoarranque relanzó el bot el 28-oct
+  09:57 y el 29-oct 08:55). Así, el cierre de cada día llegará a la mañana
+  siguiente, al iniciar sesión. A las 00:10 solo llega si la PC queda prendida.
+
+### Implementado
+- `src/foto_salas.py`: `foto_peores(modulo, dia=...)` arma la foto de un día ya
+  terminado. `_dia_cerrado()` da la ventana (si la base dejó de recibir datos
+  más de 30 min antes de las 24:00, mide hasta su última lectura y lo
+  advierte). Energía/ambiental usan el inventario del monitor con las
+  lecturas de ese día (`_cargar_monitor_cerrado`); agua, las mismas consultas
+  con ese día. Estado al cierre: "sin datos al cierre" ("sin datos de 18:00 a
+  24:00 (6 h)" o "sin datos en todo el día (desde el 17-oct 10:15)"); un
+  atraso al final cuenta como un corte más. Textos: "cierre del lunes 27 oct",
+  sin la leyenda gris "Todavía no pasa".
+- `src/foto_cierre.py` (nuevo): `Cierre.revisar()` decide qué día toca, manda
+  cada módulo y lo anota. Si un módulo falla, reintenta cada 10 min; al 4.º
+  intento avisa en el grupo ("No pude armar la foto de cierre de /agua del
+  …") y deja ese día (si ni el aviso llega, sigue reintentando). Nunca lanza
+  (el bot no se cae por esto).
+- `scripts/telegram_bot.py`: `enviar_cierre()` (foto o texto, `silent=True`) y
+  `cierre.revisar()` al inicio de cada vuelta del bucle (≤ 50 s entre
+  revisiones; sin hilos). `/ayuda` lo menciona.
+- `src/config.py` + `.env.example`: `FOTO_CIERRE=00:10`. `.env` sin tocar.
+- Pruebas nuevas: `tests/test_foto_cierre.py` (11), 9 en `test_foto_salas`
+  (día cerrado) y 3 en `test_telegram_bot`.
+
+### Verificación pendiente
+- En esta sesión la terminal quedó bloqueada por el perfil del agente (toda
+  orden de shell rechazada), así que no se corrieron las pruebas ni se
+  reinició el bot. Falta: `venv\Scripts\python.exe -m unittest discover -s
+  tests` y reiniciar el bot. Al reiniciarlo, manda enseguida el cierre del día
+  anterior.
+
+
+## Sesión 02-nov-2026 — Reporte semanal de conectividad 26-oct → 01-nov
+
+### Pedido
+- "Un reporte del 25 al primero de noviembre". El script admite de 1 a 7
+  días: se hizo la semana lun 26 – dom 01 (mismo formato que las anteriores).
+  El dom 25 cae en la semana 19–25, que no tiene reporte en esta PC (ni en
+  Descargas ni en esta bitácora).
+
+### Ejecutado
+- Contra producción por los túneles que ya tenían abiertos el bot y la webapp
+  (55432/5435; `.env` en modo en vivo). Script sin cambios.
+- El script abortó por la verificación de horizonte: **la base ambiental de
+  PRODUCCIÓN no recibe nada desde el jue 29-oct 18:22:45** (`readings_reading`
+  y `historical_readinghistory` cortan en el mismo instante; energía al día,
+  última lectura 02-nov 09:55). Esa verificación no distingue una copia vieja
+  de una caída real.
+- Se generó igual con un envoltorio temporal (`$env:TEMP\zeia_reporte_forzado.py`)
+  que solo deja pasar esa verificación para ambiental: vie 30 – dom 01 salen en
+  0%. 34 s → `~/Downloads/reporte_conectividad_2026-10-26_a_2026-11-01.pdf`
+  (5 págs.: BK, Oechsle, Sanna ×2, Scotiabank).
+
+### Diagnóstico ambiental (solo lectura)
+- En el servidor solo están `energy`, `postgres` y `valhalladb`: no hay base
+  nueva. La app sigue conectada a `valhalladb` (23 conexiones idle desde el
+  24-oct, actividad hasta hoy 10:04), pero no inserta.
+- La energía de Sanna siguió llegando vie–dom (97.7–98.0%), y en San Borja
+  energía y ambiental comparten gateways: el corte parece estar en la ingesta
+  de la plataforma ambiental, no en la sede (inferencia, no verificada).
+- El bot (relanzado por el autoarranque hoy 08:37) mandó el cierre del 01-nov
+  de /energia y /agua; el de /ambiental falló 4 veces y avisó en el grupo.
+
+### Resultado
+- **Oechsle 93.9%** (solo energía; sem. 12–18: 95.8%). Rojos: TF-UMAS 1 vie 30
+  88.8% / sáb 31 73.6% / dom 01 50.1%; SUBTD TG-TR2 (TF-AA1) sáb 31 87.6% /
+  dom 01 40.3%; TF-BAHP vie 30 86.7% / sáb 31 51.1%; Chiller 2 mié 28 51.4% /
+  jue 29 81.0%; Llave General TGE-TR1 lun 26 89.9% / vie 30 84.2% / sáb 31
+  83.7%; TF-BAHS sáb 31 81.9%; TF-VM jue 29 83.3%; TF-UMAS 2 mar 27 84.2%.
+- **Sanna 67.8%** = (90.2 + 45.4) ÷ 2.
+  - Energía: Tomógrafo, Llave general, Resonador y Llave general TGA sin datos
+    del lun 26 ~17:45 al mar 27 ~09:50 (~16 h); los demás puntos, con huecos
+    cortos lun–mar y cortados el mar 27 de 07:06–08:27 a ~09:50. Mié–dom 96–98%.
+  - Ambiental: lun–jue 81.7 / 74.6 / 91.3 / 70.0% (el jue corta a las 18:22),
+    vie–dom 0% por la caída. Antes de la caída ya estaban mal Sala de
+    tomografía (mar–jue 15.6 / 25.3 / 19.1%) y Zona Roja (52.8–70.5%).
+- **Scotiabank 72.1%** = (99.9 + 44.2) ÷ 2. Energía ya con 3 equipos
+  (Barranco, Jockey Plaza, SITE Barranco). Agua: Jockey Plaza 100%; SITE
+  Barranco 0% lun–jue, 29.2% vie 30, 100% sáb–dom; Barranco "Medidor" 0% toda
+  la semana (medidor derivado de SITE Barranco, ver 27-oct).
+- **Burger King 0.0%**: entra por las 528 lecturas del 23-oct (ver 27-oct).
+  **No debió salir** (ver abajo).
+
+### Pregunta: "¿por qué sigue Tablero General T-G - Burger King? ¿Está activo?"
+- No. Desde el **27-oct 14:53** la plataforma tiene desactivados la sede BK
+  Salaverry (101), el tablero 68 y el punto 108 (`is_active = false`); solo el
+  dispositivo 101 sigue con `is_active = true`.
+- Salió porque `reporte_conectividad.py` **no lee ninguna bandera de estado**:
+  incluye toda unidad con alguna lectura en la semana o en las 4 previas, y el
+  punto 108 mandó 528 lecturas el 23-oct (02:52–11:59, contador 0 → 99.38 kWh).
+  El monitor, las fotos del bot y los avisos sí usan `mp.is_active` (por eso
+  BK ya no sale en /energia: 34 equipos el 01-nov contra 35 el 27-oct).
+- Mismo problema en agua: el medidor 4 (Barranco) tiene `dependency = true`
+  (depende del 3, SITE Barranco) desde **hoy 09:01**; los avisos lo excluyen,
+  el reporte no.
+- Revisado en el periodo del reporte (28-sep → 01-nov): BK es el único punto de
+  energía inactivo con lecturas y ningún sensor ambiental desactivado tiene
+  lecturas.
+- Corrección propuesta (sin hacer, falta OK): mismos filtros que los avisos
+  (energía `mp.is_active`, agua `mw.is_active AND NOT dependency`, ambiental
+  `rd.is_activated` como el monitor) y regenerar. Quedaría sin la página de BK
+  y Scotiabank ≈ 83.1% (agua ≈ 66.4%).
+
+### 3er pedido: dependientes e inactivos fuera del reporte
+- Pedido: "Barranco referencia a SITE Barranco, siempre van a tener el mismo
+  porcentaje de lecturas: muestra solo una, Barranco" y "deja los puntos
+  inactivos y DESACTIVADOS fuera del reporte de conectividad".
+- `scripts/reporte_conectividad.py`:
+  - Inventarios solo con lo activo, con su jerarquía: energía punto +
+    dispositivo + tablero + sede (`is_active`); agua medidor + tubería + sede
+    (`is_active`); ambiental sensor + dispositivo + sala (`is_activated`). En
+    el periodo solo cambia BK (los 34 puntos restantes, 3 medidores y 38
+    sensores con datos tienen todo activo; ninguna bandera nula en ambiental).
+  - `con_dependencias()`: un medidor de agua dependiente se mide con las
+    lecturas, el ritmo y el estado (previas / recién instalado) de su fuente
+    (`dependency_point_id`), y la fuente no se muestra. Si la fuente no está en
+    el inventario, usa sus propias lecturas.
+  - Por qué las lecturas de la fuente y no las propias: las derivadas de
+    Barranco no siguen a SITE Barranco. El 23-oct se crearon 11 cada 30 min
+    (07:30–12:30) de una sola lectura de la fuente, con la fuente ya callada
+    desde las 05:40; y hoy, con `dependency = true` desde las 09:01, SITE
+    Barranco mandó 3 lecturas (09:10, 09:40, 10:10) y Barranco ninguna (su
+    última sigue siendo del 23-oct 12:30).
+- Pruebas: 36 OK en el reporte (9 nuevas: filtros ×4, dependientes ×5); suite
+  completa 209 OK (incluye lo pendiente del 29-oct).
+- PDF regenerado (36 s, con el mismo envoltorio porque ambiental sigue caída):
+  4 págs. Sin BK. **Scotiabank 83.2%** = (99.9 + 66.4) ÷ 2; agua = Barranco
+  (con las lecturas de SITE Barranco: 0% lun–jue, 29.2% vie, 100% sáb–dom,
+  semana 32.7%) + Jockey Plaza 100%. Oechsle 93.9% y Sanna 67.8% sin cambio.
+
+### Pendiente
+- Que alguien revise la ingesta ambiental. Si se recuperan los datos de vie–dom,
+  regenerar el reporte (con el script normal, sin envoltorio).
+- Que alguien revise por qué no se generan las lecturas derivadas de Barranco.
+- Sin commit: los cambios de esta sesión quedan junto a los del 27–29 oct sin
+  subir.
+
+### Push (misma sesión)
+- A pedido, commit + push a `origin/main` de todo lo pendiente, en 4 commits:
+  foto de cierre (29-oct), autoarranque (28-oct), reporte de conectividad
+  (hoy) y docs. Suite: 209 OK. `.env`, `.pem` y `data/` siguen gitignored.
+
+### 4º pedido: subir SOLO el bot a una EC2 (24/7), aislado del resto
+- `deploy/bot/` nuevo (guía en `deploy/bot/README.md`):
+  - `empaquetar.py`: lista cerrada de 27 archivos (bot, `scripts/avisos.py`,
+    12 módulos de `src/`, sus pruebas y los de instalación) → `dist/zeia-bot-<commit>.tar.gz`
+    en LF; rechaza `.env`/`.pem`/`.pdf`/`.sqlite`. `--env` arma `dist/bot.env`
+    desde `.env` con solo las variables del bot (sin OpenRouter/ElevenLabs) y
+    host/puerto/túnel siempre del ejemplo (en el servidor, por túnel).
+  - `requirements-bot.txt`: 6 librerías fijas (sin openai ni fastapi).
+  - `instalar.sh` (Ubuntu): usuario `zeiabot` sin shell, `/opt/zeia-bot`,
+    venv, Chromium en `/opt/zeia-bot/browsers`, fuentes. Prueba el código nuevo
+    ANTES de instalarlo, guarda el anterior en `/opt/zeia-bot/anterior` y lo
+    restaura si la verificación falla. No toca `.env`, llaves ni `data/`. La
+    primera vez NO enciende ni habilita el bot (evitar 2 bots con la laptop).
+  - `zeia-bot.service`: `Restart=always`, `MemoryMax=1536M`, `ProtectSystem=strict`
+    (solo escribe `app/data` y su HOME), `ProtectHome`, `NoNewPrivileges`,
+    `PrivateTmp`. Sin `PrivateDevices` ni `MemoryDenyWriteExecute` (Chromium).
+  - `verificar.py`: `.env` y llaves (600), `data/` escribible, las 2 bases por
+    túnel (última lectura, solo lectura), `getMe` de Telegram, foto de prueba
+    con Chromium. `instalar.sh` lo corre en `zeia-bot-verificar.service`, generada
+    del servicio con `sed`: mismo aislamiento que el bot.
+- `src/config.py`: `OPENROUTER_API_KEY` pasa a opcional (antes `os.environ[...]`
+  tumbaba al bot sin ella). Sin clave, el chat sigue fallando claro al crear el
+  agente (`OpenAIError: The api_key client option must be set`).
+- `scripts/autoarranque.vbs`: si existe `data\bot_en_servidor.txt` no lanza el
+  bot (la webapp sí).
+- `.gitignore` + `dist/`; `.gitattributes`: `.sh` y `.service` de deploy en LF.
+- Pruebas: `tests/test_deploy_bot.py` (6: la lista trae todo lo que el bot
+  importa —recorre los imports con `ast`—, nada del chat/webapp/secretos, LF,
+  `.env` filtrado). Suite 215 OK.
+- Probado el paquete solo en `$env:TEMP\zeia_bot_limpio`: Python 3.12.10 (el
+  de Ubuntu 24.04) con solo las 6 librerías → 151 pruebas OK; `verificar.py`
+  conectó a las 2 bases (reutilizando los túneles de la laptop), `getMe` OK y
+  Chromium dibujó la foto (el único error, a propósito: sin `.env`). `bash -n
+  instalar.sh` OK. **No probado**: `instalar.sh` y el aislamiento de systemd en
+  un Ubuntu real (no hay Linux aquí): revisar el primer arranque en la EC2.
+- Ambiental volvió el 02-nov 12:20; del 30-oct al 01-nov no se recuperó nada
+  (el reporte de la semana sigue valiendo).

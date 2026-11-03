@@ -29,3 +29,5 @@ T*.json
 
 # SO
 .DS_Store
+# Paquete del bot para el servidor (deploy/bot/empaquetar.py; bot.env tiene secretos)
+dist/

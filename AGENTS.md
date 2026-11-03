@@ -65,7 +65,13 @@ src/
                         tuvo problemas, todas las empresas juntas, de peor a
                         mejor (máx. 10 filas + aviso al pie si hay más); barra
                         del día en tramos de 10 min verde/ámbar/rojo; HTML →
-                        PNG con Playwright (Chromium; si no, Edge/Chrome)
+                        PNG con Playwright (Chromium; si no, Edge/Chrome).
+                        foto_peores(modulo, dia=...) = ese día completo (cierre)
+  foto_cierre.py        Foto de cierre: a FOTO_CIERRE (00:10) el bot manda sola,
+                        sin sonido, la foto de cada módulo del día ANTERIOR
+                        completo (00:00–24:00); si la PC estaba apagada, apenas
+                        vuelve el bot (solo el último día). Lo enviado queda en
+                        data/foto_cierre.json (no repite); no depende de AVISOS_MODO
   gateways.py           Mapeo EUI → gateway de Sanna (no está en las bases);
                         lo usan webapp.py (reportes por gateway) y los avisos
   avisos.py             ★ Motor de avisos automáticos (PURO: sin base ni red):
@@ -95,22 +101,36 @@ scripts/
                         propio del medidor), rojo <90%, energía por tablero y agua
                         por tubería (sin gateways: no están en la DB) y al final la
                         conectividad final = promedio simple de sus módulos. Equipos
-                        recién instalados entran la semana siguiente.
+                        recién instalados entran la semana siguiente. Lo inactivo o
+                        desactivado (la unidad o su tablero/sede/sala) no entra. Un
+                        medidor de agua dependiente sale solo él, medido con las
+                        lecturas de su fuente (la fuente no se muestra).
                         Consulta en vivo; Chrome headless
   telegram_setup.py     Valida el token del bot, muestra el id del grupo y con
                         --test manda 2 mensajes de prueba (con y sin sonido)
   telegram_bot.py       Bot del grupo (long polling, sin URL pública):
                         /ambiental, /energia, /agua (foto de lo peor de hoy),
                         /avisos, /mantenimiento y /ayuda; /salas = alias de
-                        /ambiental; corre los avisos automáticos en un hilo;
-                        solo responde en
+                        /ambiental; corre los avisos automáticos en un hilo y
+                        la foto de cierre diaria en su bucle; solo responde en
                         TELEGRAM_CHAT_ID; una instancia por PC (candado
                         127.0.0.1:47831). Arranque: scripts\telegram_bot.cmd
                         (producción en vivo por túnel; log logs/telegram_bot.*)
   avisos.py             Avisos: --backtest (semanas pasadas → analisis/),
                         --ciclo (uno ahora, simulado), --estado. No envía.
                         Contra producción: scripts\avisos.cmd
+  autoarranque.vbs      Al iniciar sesión lanza bot + webapp ocultos (tarea de
+                        Windows); no duplica si ya corren. Lo registra
+                        instalar_autoarranque.cmd/.ps1 (sin administrador)
 tests/                  unittest sin DB (python -m unittest discover -s tests)
+deploy/bot/             ★ Bot de Telegram SOLO en una EC2 Ubuntu 24/7 (ver README):
+                        empaquetar.py (lista cerrada de archivos → dist/*.tar.gz;
+                        --env arma dist/bot.env solo con variables del bot),
+                        instalar.sh (usuario zeiabot, /opt/zeia-bot, systemd
+                        aislado, prueba antes y vuelve atrás si falla),
+                        verificar.py (bases, Telegram y Chromium sin mandar nada).
+                        Con data\bot_en_servidor.txt el autoarranque de la laptop
+                        ya no lanza el bot (solo la webapp)
 eval/
   questions.yaml        Preguntas de prueba con hechos esperados
   questions_carga.yaml  Prueba de carga: 3 meses × 2 puntos/tableros
@@ -170,7 +190,10 @@ docs/
   (medidor) → `readings_readingwater` (`consumo_litros`/`consumo_m3` =
   contador acumulado → consumo = MAX−MIN; `estado_*`, `bateria_v`, rssi/snr).
   Solo Scotiabank: Jockey Plaza "Kitchenette" (desde 03-sep, 1 lectura cada
-  10 min) y SITE Barranco "Principal" (desde 12-oct, cada 30 min). Zeia Demo
+  10 min) y SITE Barranco "Principal" (desde 12-oct, cada 30 min). Barranco
+  "Principal" es un medidor DEPENDIENTE de SITE Barranco (`dependency`,
+  `dependency_point_id` = 3): sin equipo propio, sus lecturas se derivan de
+  las de SITE Barranco (`derived_from_id`). Zeia Demo
   (Surco) es de prueba. El agente (prompts.py) aún NO conoce este módulo.
 - Empresas reales: Sanna, BanBif, Oechsle, Pizza Hut, Burger King, KFC,
   Madam Tusan. `TestCorp_Email` es de pruebas (ignorar).
@@ -261,6 +284,8 @@ python scripts/telegram_setup.py      # bot de avisos: valida token + id del gru
 python scripts/telegram_setup.py --test   # 2 mensajes de prueba al grupo
 scripts\telegram_bot.cmd              # bot del grupo: /ambiental /energia /agua (en vivo)
                                       #   + avisos automáticos (AVISOS_MODO, defecto simular)
+scripts\instalar_autoarranque.cmd     # tarea al iniciar sesión: bot + webapp ocultos
+                                      #   (una vez; se prueba con schtasks /run /tn "ZEIA-IA autoarranque")
 scripts\avisos.cmd --backtest --desde 2026-09-23 --hasta 2026-10-20   # avisos de 4 semanas
 scripts\avisos.cmd --ciclo            # qué avisaría ahora (no envía)
 scripts/sync_db.sh ambiental full     # sync de una base (dump+restore+verifica)

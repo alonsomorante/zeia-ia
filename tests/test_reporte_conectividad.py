@@ -20,7 +20,8 @@ _spec.loader.exec_module(rc)
 DIAS = [date(2026, 9, 28) + timedelta(days=i) for i in range(7)]
 InvAmb = namedtuple("InvAmb", "empresa sede sala uid indicador sala_id", defaults=(None,))
 InvEne = namedtuple("InvEne", "empresa sede tablero uid nombre principal")
-InvAgua = namedtuple("InvAgua", "empresa sede tuberia uid nombre principal")
+InvAgua = namedtuple("InvAgua", "empresa sede tuberia uid nombre principal depende_de",
+                     defaults=(None,))
 
 
 def _cnt(lecturas: dict) -> dict:
@@ -381,6 +382,82 @@ class TestVariasSedes(unittest.TestCase):
         self.assertIn(">Kitchenette</td>", doc)
         self.assertIn(">Tablero General TG</td>", doc)
         self.assertNotIn("Jockey Plaza · ", doc)
+
+
+class TestSoloActivos(unittest.TestCase):
+    """Lo inactivo o desactivado en la plataforma no entra al inventario, aunque
+    haya enviado datos (Burger King: sede, tablero y punto inactivos el 27-oct)."""
+
+    @staticmethod
+    def _where(sql: str) -> str:
+        return " ".join(sql.split()).split(" WHERE ", 1)[1]
+
+    def test_energia_punto_dispositivo_tablero_y_sede_activos(self):
+        self.assertEqual(self._where(rc.SQL_INV_ENERGIA),
+                         "mp.is_active AND d.is_active AND ep.is_active AND eh.is_active")
+
+    def test_agua_medidor_tuberia_y_sede_activos(self):
+        self.assertEqual(self._where(rc.SQL_INV_AGUA),
+                         "mw.is_active AND wp.is_active AND eh.is_active")
+
+    def test_ambiental_sensor_dispositivo_y_sala_activados(self):
+        self.assertEqual(self._where(rc.SQL_INV_AMBIENTAL),
+                         "rd.is_activated AND d.is_activated AND r.is_activated")
+
+    def test_los_inventarios_pasan_la_validacion_de_solo_lectura(self):
+        for sql in (rc.SQL_INV_ENERGIA, rc.SQL_INV_AGUA, rc.SQL_INV_AMBIENTAL):
+            rc.validate_sql(sql)
+
+
+class TestDependientes(unittest.TestCase):
+    """Barranco (4) depende de SITE Barranco (3): sale una sola fila, la de
+    Barranco, medida con las lecturas de SITE Barranco."""
+    INV = [InvAgua("Scotiabank", "Jockey Plaza", "Kitchenette", 2, "Medidor general", True),
+           InvAgua("Scotiabank", "SITE Barranco", "Principal", 3, "Medidor general", True),
+           InvAgua("Scotiabank", "Barranco", "Principal", 4, "Medidor", True, 3)]
+    SITIO = [0, 0, 0, 0, 14, 48, 48]      # SITE Barranco volvió el viernes
+
+    def _agua(self, lect: dict, previos=(), nuevos=()):
+        datos, ritmos = rc.con_dependencias(
+            (self.INV, _cnt(lect), set(previos), set(nuevos)),
+            {2: 144, 3: 48, 4: 144})        # 4: ritmo de sus propias lecturas (no cuenta)
+        inv, cnt, previos2, nuevos2 = datos
+        mod = rc.modulo_agua(inv, cnt, previos2, DIAS, ritmos=ritmos, nuevos=nuevos2)
+        rc.calcular(mod, 90.0)
+        return mod
+
+    def test_sale_solo_el_dependiente_con_las_lecturas_de_su_fuente(self):
+        mod = self._agua({2: [144] * 7, 3: self.SITIO}, previos={4})
+        self.assertEqual([(b["sede"], b["titulo"]) for b in mod["bloques"]],
+                         [("Barranco", "Principal"), ("Jockey Plaza", "Kitchenette")])
+        barranco = mod["bloques"][0]["filas"][0]
+        self.assertEqual(barranco["nombre"], "Medidor")
+        self.assertEqual(barranco["lecturas"], self.SITIO)
+        self.assertEqual(barranco["esperadas"], 48)          # el ritmo de la fuente
+        self.assertEqual(rc.fmt(barranco["vals"][4]), "29.2%")
+        self.assertEqual(barranco["malos"], [0, 1, 2, 3, 4])
+        self.assertEqual(mod["n_filas"], 2)
+
+    def test_fuente_caida_antes_de_la_semana_el_dependiente_sale_en_rojo(self):
+        mod = self._agua({2: [144] * 7}, previos={3})
+        barranco = mod["bloques"][0]["filas"][0]
+        self.assertEqual((mod["bloques"][0]["sede"], barranco["malos"]),
+                         ("Barranco", list(range(7))))
+
+    def test_fuente_recien_instalada_el_dependiente_entra_la_semana_siguiente(self):
+        mod = self._agua({2: [144] * 7, 3: self.SITIO}, nuevos={3})
+        self.assertEqual(mod["sedes"], ["Jockey Plaza"])
+        self.assertEqual(mod["nuevos"], ["Barranco · Principal · Medidor"])
+
+    def test_fuente_sin_datos_en_5_semanas_queda_fuera_aunque_el_dependiente_tenga(self):
+        mod = self._agua({2: [144] * 7, 4: [48] * 7})
+        self.assertEqual(mod["sedes"], ["Jockey Plaza"])
+        self.assertEqual(mod["excluidos"], 1)
+
+    def test_fuente_fuera_del_inventario_usa_sus_propias_lecturas(self):
+        inv = [InvAgua("Scotiabank", "Barranco", "Principal", 4, "Medidor", True, 99)]
+        datos = (inv, _cnt({4: [48] * 7}), set(), set())
+        self.assertEqual(rc.con_dependencias(datos, {4: 48}), (datos, {4: 48}))
 
 
 if __name__ == "__main__":
