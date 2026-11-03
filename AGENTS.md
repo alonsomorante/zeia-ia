@@ -72,6 +72,9 @@ src/
                         completo (00:00–24:00); si la PC estaba apagada, apenas
                         vuelve el bot (solo el último día). Lo enviado queda en
                         data/foto_cierre.json (no repite); no depende de AVISOS_MODO
+  fotos_dia.py          Fotos del día: a FOTOS_DIA (09:00,14:00,20:00) manda solas,
+                        sin sonido, las fotos de HOY acumulado (como /energia…);
+                        tarde solo ≤60 min; registro en data/fotos_dia.json
   gateways.py           Mapeo EUI → gateway de Sanna (no está en las bases);
                         lo usan webapp.py (reportes por gateway) y los avisos
   avisos.py             ★ Motor de avisos automáticos (PURO: sin base ni red):
@@ -79,7 +82,9 @@ src/
                         (sin datos ≥60 min, batería <10 %, no mide, 3 días mal),
                         🟡 resumen 08:00; histéresis, agrupado, mantenimiento
   avisos_datos.py       Historia en memoria minuto a minuto (solo lectura) para
-                        el motor: igual en vivo que en el backtest
+                        el motor: igual en vivo que en el backtest. Vigila lo
+                        que reportó en 30 días, salvo lo que vuelve tras ≥30
+                        días sin datos con <24 h con datos (vigilada())
   avisos_vivo.py        Motor en vivo (ciclo 5 min, hilo del bot), estado en
                         SQLite local data/ (gitignored), /avisos, /mantenimiento,
                         backtest(). AVISOS_MODO = simular (defecto) | enviar | apagado
@@ -115,7 +120,8 @@ scripts/
                         la foto de cierre diaria en su bucle; solo responde en
                         TELEGRAM_CHAT_ID; una instancia por PC (candado
                         127.0.0.1:47831). Arranque: scripts\telegram_bot.cmd
-                        (producción en vivo por túnel; log logs/telegram_bot.*)
+                        (producción en vivo por túnel; log logs/telegram_bot.*);
+                        en Mac: scripts/telegram_bot.sh --fondo (+ caffeinate)
   avisos.py             Avisos: --backtest (semanas pasadas → analisis/),
                         --ciclo (uno ahora, simulado), --estado. No envía.
                         Contra producción: scripts\avisos.cmd
@@ -130,7 +136,10 @@ deploy/bot/             ★ Bot de Telegram SOLO en una EC2 Ubuntu 24/7 (ver REA
                         aislado, prueba antes y vuelve atrás si falla),
                         verificar.py (bases, Telegram y Chromium sin mandar nada).
                         Con data\bot_en_servidor.txt el autoarranque de la laptop
-                        ya no lanza el bot (solo la webapp)
+                        ya no lanza el bot (solo la webapp).
+                        EN PRODUCCIÓN desde 03-nov-2026: EC2 zeia-bot-cobertura,
+                        ubuntu@23.23.69.185, llave ~/.ssh/zeia-bot-cobertura.pem.
+                        Actualizar desde la Mac: bash deploy/bot/actualizar.sh
 eval/
   questions.yaml        Preguntas de prueba con hechos esperados
   questions_carga.yaml  Prueba de carga: 3 meses × 2 puntos/tableros
@@ -286,6 +295,8 @@ scripts\telegram_bot.cmd              # bot del grupo: /ambiental /energia /agua
                                       #   + avisos automáticos (AVISOS_MODO, defecto simular)
 scripts\instalar_autoarranque.cmd     # tarea al iniciar sesión: bot + webapp ocultos
                                       #   (una vez; se prueba con schtasks /run /tn "ZEIA-IA autoarranque")
+scripts/telegram_bot.sh --fondo       # lo mismo en Mac: segundo plano y sin reposo
+                                      #   detener: pkill -INT -f scripts/telegram_bot.py
 scripts\avisos.cmd --backtest --desde 2026-09-23 --hasta 2026-10-20   # avisos de 4 semanas
 scripts\avisos.cmd --ciclo            # qué avisaría ahora (no envía)
 scripts/sync_db.sh ambiental full     # sync de una base (dump+restore+verifica)

@@ -2128,6 +2128,229 @@ conserva por los hallazgos de la base.
 - Revisión de secretos antes de subir (101 archivos): solo valores de ejemplo
   en los `.env.example` y variables (`"${...}"`) en los `sync_db.sh`.
 
+## Sesión 23-oct-2026 (Mac) — Avisos automáticos ACTIVOS (modo enviar)
+
+### Estado al empezar (05:38)
+- El bot NO corría: último ciclo 22-oct 22:38 (en simulación). La Mac mini se
+  apagó a las 22:39 (reporte `shutdown_stall` de esa hora; hay otros del 18,
+  19, 20 y 22-oct 12:12) y prendió a las 05:29. Nada relanza el bot al
+  arrancar (sin LaunchAgent ni cron).
+- Mientras corrió (22-oct 18:08–22:38, simular): ciclos sin errores, 46
+  vigilados, nada abierto. Único aviso simulado: el resumen 🟡 del 21-oct
+  (Llave general Sanna San Borja TG-P1 69.1 %, 32 cortes; 3 de Scotiabank
+  Barranco sin primera lectura). A las 18:18 un /energia no salió
+  (Connection reset by peer).
+
+### Hecho
+- `.env`: `AVISOS_MODO=enviar` (pedido del usuario). Estado nuevo en
+  `data/avisos.sqlite`: lo simulado no cuenta como enviado.
+- `scripts/telegram_bot.sh` (nuevo): equivalente Mac/Linux de
+  `telegram_bot.cmd` (mismas variables de túnel). `--fondo` = segundo plano
+  (`nohup` + grupo de procesos propio). Envuelve el bot en `caffeinate -is`:
+  la Mac tiene `pmset sleep 1`, y dormida congela el bot. Para detenerlo:
+  `pkill -INT -f scripts/telegram_bot.py` (cierra sus túneles).
+- Bot arrancado a las 05:48 con `scripts/telegram_bot.sh --fondo`: "Avisos
+  automáticos ACTIVOS", túneles propios 55432/5435, aserción de caffeinate
+  activa. Ciclos 05:48 y 05:53 sin errores, 49 vigilados, nada abierto, 0
+  mensajes, sin pendientes.
+
+### Pendiente
+- Arranque automático al prender la Mac (LaunchAgent) o mover el bot a un
+  servidor: con la Mac apagada no hay avisos, ni siquiera 🔴, y nadie se
+  entera de que el monitor cayó.
+- Primer mensaje esperado: el resumen 🟡 del 22-oct a las 08:00. Confirmar
+  con /avisos en el grupo (debe decir ACTIVOS).
+- Sigue pendiente lo del 21-oct: horario de los 🟠 y Red de emergencia.
+
+### Maqueta del dashboard del cliente (misma sesión)
+- Pedido: proponer cómo hacer el chat rápido y un dashboard flexible (el actual,
+  pestaña Dashboard de `/chat`, no le gusta: cards = respuestas de la IA, 1–2 min).
+  Propuesta: capa de métricas precalculadas (hora/día) compartida por dashboard y
+  chat; el LLM solo elige qué consultar; streaming; 📌 fijar respuestas como
+  gráficos vivos; login por empresa antes de darlo a clientes.
+- **Prototipo desechable** (sin commit): `scripts/prototype_dashboard.py` baja
+  energía por punto y hora (1-ago → hoy, solo lectura, por tramos de 7 días:
+  ~4 min) y arma `analisis/prototype_dashboard.html` (autocontenido, gitignored)
+  desde `web/static/prototype_dashboard.html`. `--reusar` = sin consultar.
+  3 variantes (`?variant=A|B|C`, barra flotante, ←/→): A Tablero (KPIs + widgets
+  editables + chat lateral con 📌), B Informe vivo (estilo reporte mensual),
+  C Explorador (árbol + barra de comandos). Chat simulado (4 preguntas).
+- Validado: total Sanna = punto 1 (Llave general TG-P1): junio 146,363 kWh = los
+  146.36 MWh del reporte mensual. Octubre 1–22: Sanna 118.70 MWh, Oechsle
+  118.98 MWh (75 + 76). Σ horas vs MAX−MIN del 22-oct: Oechsle exacto, Sanna +1 %
+  (energía de huecos repartida). Probado en Chrome headless: sin errores, 18
+  combinaciones × 4 preguntas, interacciones de las 3 variantes.
+- Hallazgos: tarifa de Oechsle en billingdata ahora = 110.67 US$/MWh (antes 39.15);
+  Sanna 44 % "otros no desagregados"; los 9 circuitos del TGA cubren ~22 % de su
+  llave; alumbrado de TG-TR1 suma ~7 % más que su llave; Resonador (5) sin avance
+  de contador; Oechsle 21–22 oct con más consumo y noche +55 % vs septiembre.
+- Pendiente: que el usuario elija variante (o mezcla); luego capturar el
+  prototipo en una rama desechable y construir la capa de métricas.
+- Feedback (misma sesión): le gusta la variante A, pero con datos progresivos
+  ("matrioska"). A v2: sede → tableros → circuitos con tarjetas que se abren
+  (ruta arriba, "Otros no desagregados" y "Fuera del total" como tarjetas),
+  pocos gráficos por nivel (sede 2, tablero 2, circuito 3) y "+ Agregar
+  gráfico"; cada nodo guarda su orden; arrastrar por ⠿ (grilla `dense`), con
+  flechas del teclado o "← Antes / Después →". Bug del chat que no se podía
+  cerrar con muchos gráficos: era `position: sticky` dentro de la grilla + el
+  `padding-bottom` del body (la X quedaba 84 px fuera de pantalla al fondo) →
+  panel `position: fixed`. Probado: 96 nodos × periodos, DnD, X visible al fondo.
+- 3.er feedback: el foco debe ser el CHAT y desde ahí armar el dashboard; sin
+  capas (acceso a cualquier sede/tablero/circuito desde el chat) y con un MAPA
+  de conexiones para no perderse; captura del dashboard como imagen. Nueva
+  variante **D · Chat primero** (por defecto): saludo con resumen, preguntas en
+  lenguaje natural que reconocen el punto ("el data center", "chiller 2 esta
+  semana", "cuánto cuesta el tg-tr1") y el periodo; cada respuesta con "Verlo
+  como" (otros gráficos) + sugerencia + "Agregar a mi dashboard". Mapa =
+  diagrama unifilar (árbol ECharts): color por tablero, punto según energía,
+  % del total, punteado = sin medidor; clic = contexto del chat. "Mi dashboard":
+  arrastrar ⠿, ancho, cambiar tipo, quitar y 📸 PNG (html2canvas, inline).
+  Bug corregido: el gráfico de "costo" perdía el tablero (spread de `base`,
+  la función, en vez de `b0`). Probado: 32 puntos × 5 preguntas, fijar,
+  arrastrar y captura descargada (Sanna y Oechsle), sin errores.
+
+## Sesión 26-oct-2026 (casa, Mac) — Reporte semanal de conectividad 19 → 25 oct
+
+### Pedido
+- Crear el reporte de conectividad del 19 al 25 de octubre.
+
+### Ejecutado
+- `git fetch`: local al día con `origin/main`. Pruebas del reporte: 27 OK. La
+  suite completa da 177 con 1 error ajeno al reporte:
+  `test_avisos_vivo.StoreTest.test_en_archivo` usa
+  `TemporaryDirectory(ignore_cleanup_errors=True)`, que es de Python 3.10+, y
+  el venv de la Mac es 3.9.6.
+- El `.env` de la Mac ya está en modo en vivo (55432/5435 con túnel): el
+  script abrió y cerró los túneles solo. El bot de Telegram NO estaba
+  corriendo en esta Mac (ni proceso ni túneles abiertos).
+- 1.ª corrida (todas las empresas, 2 min 59 s): 4 páginas. Apareció
+  **Burger King 5.2%** (Tablero General TG-1, punto 108: 0% todos los días
+  menos el vie 23, con 36.7%).
+- **Causa**: esas 528 lecturas del vie 23 (02:52–11:59 Lima) son del medidor
+  nuevo de **Scotiabank SITE Barranco** (punto 234), no de BK. El contador
+  del 108 arranca en 0.0 a las 02:52 y llega a 99.38 a las 11:59:37; el 234
+  sigue a las 12:00:37 con 99.76, con el mismo ritmo (segundo :37). Los
+  registros `devices_device` 101 (BK) y 234 se editaron a las 12:00:22 y
+  12:00:32: alguien corrigió a esa hora a qué punto iba el medidor (inferencia
+  de los datos; no confirmado con la plataforma). BK no enviaba nada desde
+  el 31-jul, y lo de julio era con EPpos 0.
+- 2.ª corrida, sin BK: `--empresa Oechsle --empresa Sanna --empresa
+  Scotiabank --out ~/Downloads/reporte_conectividad_2026-10-19_a_2026-10-25.pdf`
+  (34 s; con `--out` el archivo conserva el nombre de siempre) → 3 págs., una
+  por empresa.
+
+### Resultado
+- **Oechsle 95.4%** (solo energía; sem. anterior 95.8%). Rojos:
+  - Red normal: vie 23 82.0%, sáb 24 52.8% y dom 25 73.8% (126/364/214 huecos
+    de ≤5 min, ningún corte largo). Empezó el vie 23, igual que Llave General
+    TGE-TR1, que bajó a 91.9–93.7% con el mismo patrón.
+  - Red de emergencia: mar 20 55.0% (290 huecos; el mayor, 01:49–02:14,
+    coincide con un corte de ~20 min de toda la sede, que explica que el
+    martes bajaran todos los puntos) y dom 25 74.0% (164 huecos de ≤8 min).
+- **Sanna 97.8%** = (96.4 + 99.2) ÷ 2 (sem. anterior 95.3%). Único rojo:
+  Llave general TG-P1, mié 21, 69.1% (114 huecos; el mayor, ~22 min, de 12:28
+  a 12:50). Fue intermitente toda la semana (89.7%). Ambiental 99.2% sin
+  rojos: las salas arregladas el 15-oct se mantienen. Batería más baja: Sala
+  de tomografía 39%; ninguna < 20%.
+- **Scotiabank · Jockey Plaza 99.8%** = (99.5 + 100.0) ÷ 2. Barranco y SITE
+  Barranco (energía y agua) quedaron como recién instalados: entran la semana
+  próxima.
+- 11 empresas sin datos en el periodo (las inactivas conocidas).
+
+### Verificación
+- 429/429 celdas del HTML (filas, "Semana", "Promedio del día", batería y
+  finales) iguales a un recálculo independiente: energía con la empresa por
+  JOIN, `date_trunc` y límites '-05'; ambiental agrupado por
+  `readings_reading.room_id` (peor sensor de la sala); batería unida solo por
+  devEUI; ritmo del agua = moda calculada en Python. Finales: 95.4 / 97.8 /
+  99.8. PDF revisado a la vista: cada empresa cabe en 1 página. HTML y PNG de
+  la revisión borrados.
+
+### Hallazgos de Scotiabank Barranco (agua)
+- SITE Barranco "Medidor general" (medidor 3): el historial del 12 al 22-oct
+  ya no está en la base. Solo quedan 9 lecturas del 23-oct, de 02:10 a 05:40
+  (ids 7478–7507). Sigue con `estado_tuberia='vacia'` y el contador fijo en
+  350 L, y **no reporta desde el jue 23 a las 05:40**.
+- Barranco "Medidor" (medidor 4, creado el 19-oct): sus 11 lecturas (23-oct,
+  07:30–12:30, cada 30 min) son DERIVADAS: `derived_from_id = 7507` (la última
+  del medidor 3) y 315 L = 350 L − 10% (`dependency_percentage = 10`,
+  `dependency_point_id = 3`). No es un equipo que transmita. Lo editaron a las
+  13:01 y desde entonces no tiene lecturas.
+
+### Pendiente (antes del reporte del 26-oct → 01-nov)
+- Pedir a la plataforma que pase las 528 lecturas del 23-oct (02:52–11:59) del
+  punto 108 (BK) al 234, o que las borre. Si no, BK vuelve a salir con 0%
+  durante 4 semanas (la ventana de 28 días las ve) → correr con `--empresa
+  Oechsle --empresa Sanna --empresa Scotiabank`.
+- SITE Barranco (agua) entra la próxima semana y saldrá en 0% si sigue sin
+  reportar (falla real). El "Medidor" de Barranco es derivado: el reporte
+  debería excluir los medidores derivados (hoy contaría como 0%).
+
+## Sesión 26-oct-2026 (casa, Mac, 2.ª) — 🟠 falso de Burger King en el grupo
+
+### Pedido
+- "¿Por qué me salió una alerta de Burger King si esa cuenta no recibe datos
+  hace mucho?" (captura del grupo: 🟠 del vie 23-oct 13:03, "Tablero General
+  TG-1 (Burger King Salaverry · Tablero General T-G - Burger King) sin datos
+  desde las 11:59 (hace 1 h 5 min)"; Ronald preguntó "¿cuál Burger King?").
+
+### Causa (verificada en producción, solo lectura, y en data/avisos.sqlite)
+- Es lo mismo que salió en el reporte de esta mañana: las 528 lecturas del
+  23-oct 02:52–11:59 del punto 108 (BK, sin datos desde el 31-jul) son del
+  medidor nuevo de Scotiabank SITE Barranco. A las 12:00 corrigieron los
+  dispositivos 101 y 234 (12:00:21 y 12:00:31) y el contador sigue en el 234
+  (99.38 → 99.76, mismo segundo :36).
+- El motor vigila todo lo que tiene lecturas en los últimos 30 días: para él
+  BK "revivió" a las 02:52 (por eso el resumen de las 08:03 decía 34 equipos
+  de energía) y al cortarse a las 11:59 mandó el 🟠 a los 64 min (13:03:33,
+  mensaje 3 de `mensajes`).
+- El bot no corre desde el 23-oct 21:43 (último ciclo). El incidente seguía
+  abierto: al reiniciarlo, BK habría salido en "Abiertos ahora" y con 0 % en
+  "Ayer con problemas" de cada resumen hasta el ~22-nov (simulado con una
+  copia del estado: confirmado).
+
+### Arreglo (`src/avisos_datos.py`)
+- `Historia.vigilada(clave, t)`: se vigila lo que reportó en 30 días SALVO lo
+  que llevaba ≥30 días sin datos y tiene menos de 24 h con datos en los 30
+  días hasta su última lectura (`VUELTA_HORAS = 24`). Lo nuevo (nunca reportó
+  antes) se vigila desde su primera lectura, como antes: el agua de SITE
+  Barranco (historial borrado en la fuente, 4 h con datos) sigue vigilada.
+  La usan `observar()` y `dia()` (avisos y resumen).
+- Horas con datos de antes de lo cargado: `_cargar_previas` (consultas
+  `horas_*` de 60 días y `antes_*` EXISTS) solo para lo que no reportaba al
+  empezar o tiene < 24 h con datos; `recortar` pasa a `horas_previas` las
+  horas que suelta (en vivo se guardan 15 días y la regla mira 30).
+- Al reiniciar el bot, el incidente de BK se cierra solo y SIN aviso (ya no
+  se vigila).
+
+### Verificación
+- 183 pruebas (6 nuevas: `VueltaTrasMeses` en test_avisos_datos y
+  `test_burger_king_del_23_oct_no_suena` en test_avisos_vivo, que repite el
+  23-oct ciclo a ciclo); solo falla el `test_en_archivo` conocido (Python 3.9).
+  Con la regla desactivada 5 de las 6 nuevas fallan y la del motor reproduce
+  el mensaje real ("sin datos desde las 11:59 (hace 1 h 4 min)").
+- Producción (solo lectura): de lo que tiene datos en 30 días, solo el punto
+  108 queda fuera. Las consultas nuevas suman ~6 s a una carga de ~2 min.
+  Reinicio simulado con copia del estado (modo simular, sin enviar): BK
+  cerrado sin aviso, 50 vigilados. Backtest del 23-oct
+  (`analisis/avisos_backtest_2026-10-23_2026-10-23.txt`): sin BK; queda el 🟠
+  de las 08:00 del agua de SITE Barranco.
+
+### Al reiniciar el bot (aún apagado) sonarán 2 🟠
+- "Resonador (Sanna · TGA (N)) transmite pero no mide" (contador quieto ~9
+  días): real, ya visto el 23-oct.
+- "Principal (Scotiabank Barranco · Medidor) sin datos desde el 23-oct 12:30":
+  el medidor de agua 4 es DERIVADO (`dependency_point_id = 3`, 10 %), pero el
+  23-oct 13:01 le pusieron `dependency = false` y el inventario ya no lo
+  excluye. El bot vivo no lo vio porque entró al inventario después de la
+  carga (lo que entra a mitad de sesión no trae sus lecturas ya guardadas);
+  el backtest sí lo avisa (13:30). Pendiente decidir: excluir también los
+  medidores con `dependency_point_id`.
+
+### Pendiente
+- Lo de esta mañana sigue: pedir a la plataforma que pase las 528 lecturas
+  del 108 al 234 (o las borre). Si BK ya no es cliente, desactivar sus puntos
+  (`is_active = false`) en la plataforma.
 
 ## Sesión 27-oct-2026 — Bot de Telegram vuelto a levantar
 
@@ -2453,3 +2676,36 @@ conserva por los hallazgos de la base.
   un Ubuntu real (no hay Linux aquí): revisar el primer arranque en la EC2.
 - Ambiental volvió el 02-nov 12:20; del 30-oct al 01-nov no se recuperó nada
   (el reporte de la semana sigue valiendo).
+
+## Sesión 03-nov-2026 (Mac) — Bot en la EC2 24/7 + fotos del día
+
+### Despliegue
+- EC2 `zeia-bot-cobertura`: Ubuntu 24.04.5, t3.small, 20 GB gp3, Elastic IP
+  `23.23.69.185`, llave `~/.ssh/zeia-bot-cobertura.pem` (en la Mac), grupo de
+  seguridad nuevo con solo SSH desde la IP de casa.
+- Bastiones: los dos aceptan SSH desde la EC2 (no hubo que tocarlos).
+  Desde la EC2 se llega a `172.31.29.136:5432` por los dos.
+  ⚠️ Hallazgo de seguridad en los grupos de la plataforma: avisado al equipo
+  aparte (no se detalla aquí: el repo es público).
+- `instalar.sh` corrió bien a la primera en Ubuntu real (157 pruebas, verificación
+  completa). `systemctl enable --now zeia-bot` a las 16:22: mandó el cierre
+  pendiente del 02-nov y 2 avisos (arrancó sin el estado de la laptop Windows,
+  que estaba apagada).
+- Pendiente en la laptop Windows: crear `data\bot_en_servidor.txt` y cerrar su
+  bot apenas se prenda (si no, 2 bots → 409 y avisos duplicados).
+
+### Cambios
+- `deploy/bot/actualizar.sh` (nuevo): arma, sube e instala en un comando
+  (`bash deploy/bot/actualizar.sh`; probado 2 veces contra la EC2).
+- `deploy/bot/empaquetar.py --env`: fallaba en Python 3.9 (`write_text(newline=)`).
+- README del bot: el estado a copiar es `avisos*.sqlite` (el de enviar se llama
+  `avisos.sqlite`; el patrón `avisos_*` lo dejaba fuera).
+- `src/fotos_dia.py` (nuevo) + `FOTOS_DIA=09:00,14:00,20:00`: a esas horas el bot
+  manda solo, sin sonido, las fotos de /ambiental, /energia y /agua de HOY
+  acumulado, con encabezado "🕒 Cómo va el día · foto de las HH:MM". Si el bot
+  estaba apagado, la manda al volver solo dentro de 60 min; si un módulo falla
+  reintenta cada 5 min dentro de esa hora. Estado en `data/fotos_dia.json`.
+  `tests/test_fotos_dia.py` (11). Suite 231/232 (el error es el conocido de
+  `ignore_cleanup_errors` en Python 3.9); en el servidor 168/168.
+- Desplegado como `1e0bf91-local`: incluye los cambios sin commit de
+  `src/avisos_datos.py` (Burger King, 26-oct). Falta commit.

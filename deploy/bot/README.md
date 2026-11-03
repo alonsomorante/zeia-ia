@@ -84,13 +84,13 @@ Set-Content data\bot_en_servidor.txt "El bot corre en la EC2. Borra este archivo
 # 2) apagar el bot que está corriendo
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -match 'telegram_bot\.py' } | ForEach-Object { Stop-Process -Id $_.ProcessId }
 # 3) llevar su estado (avisos y foto de cierre) para que no repita nada
-scp -i <llave-ec2>.pem data\avisos_*.sqlite data\foto_cierre.json ubuntu@<ip>:~/
+scp -i <llave-ec2>.pem data\avisos*.sqlite data\foto_cierre.json ubuntu@<ip>:~/
 ```
 
 En el servidor:
 
 ```bash
-sudo mv ~/avisos_*.sqlite ~/foto_cierre.json /opt/zeia-bot/app/data/
+sudo mv ~/avisos*.sqlite ~/foto_cierre.json /opt/zeia-bot/app/data/
 sudo chown -R zeiabot:zeiabot /opt/zeia-bot/app/data
 sudo systemctl enable --now zeia-bot
 journalctl -u zeia-bot -f
@@ -122,7 +122,17 @@ sudo systemctl restart zeia-bot
 
 ## Actualizar el código
 
-En la laptop, con los cambios ya en git: `venv\Scripts\python.exe deploy\bot\empaquetar.py`
+**En la Mac, un solo comando** (con los cambios ya en git):
+
+```bash
+bash deploy/bot/actualizar.sh
+```
+
+Arma el paquete, lo copia a `ubuntu@23.23.69.185` con `~/.ssh/zeia-bot-cobertura.pem`
+y corre `instalar.sh`. Otro servidor o llave: `ZEIA_BOT_HOST=ubuntu@<ip>
+ZEIA_BOT_KEY=<llave.pem> bash deploy/bot/actualizar.sh`.
+
+**A mano** (o desde Windows): `venv\Scripts\python.exe deploy\bot\empaquetar.py`
 (sin `--env`), `scp` del `.tar.gz` y en el servidor:
 
 ```bash

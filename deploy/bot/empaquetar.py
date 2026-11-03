@@ -42,6 +42,7 @@ ARCHIVOS = [
     "src/gateways.py",
     "src/foto_salas.py",
     "src/foto_cierre.py",
+    "src/fotos_dia.py",
     "src/avisos.py",
     "src/avisos_datos.py",
     "src/avisos_vivo.py",
@@ -49,6 +50,7 @@ ARCHIVOS = [
     "tests/test_avisos_datos.py",
     "tests/test_avisos_vivo.py",
     "tests/test_foto_cierre.py",
+    "tests/test_fotos_dia.py",
     "tests/test_foto_salas.py",
     "tests/test_telegram.py",
     "tests/test_telegram_bot.py",
@@ -156,7 +158,8 @@ def main(argv: list[str] | None = None) -> int:
         print("  Ojo: lleva cambios sin commit (la versión dice -local).")
     if args.env:
         destino = DIST / "bot.env"
-        destino.write_text(armar_env(ROOT / ".env"), encoding="utf-8", newline="\n")
+        # write_bytes: siempre LF (write_text(newline=) no existe en Python 3.9)
+        destino.write_bytes(armar_env(ROOT / ".env").encode("utf-8"))
         print(f"Env:     {destino} (con secretos: bórralo después de copiarlo al servidor)")
     return 0
 

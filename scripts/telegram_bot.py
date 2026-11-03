@@ -17,6 +17,9 @@ Foto de cierre (src/foto_cierre.py): a la hora FOTO_CIERRE (00:10 por
 defecto) manda sola, sin sonido, la foto de cada módulo del día anterior
 completo (00:00 a 24:00); si el bot estaba apagado, apenas vuelve.
 
+Fotos del día (src/fotos_dia.py): a las horas de FOTOS_DIA (09:00, 14:00 y
+20:00 por defecto) manda solas, sin sonido, las fotos de hoy hasta esa hora.
+
 Además corre los avisos automáticos (src/avisos_vivo.py) en un hilo, según
 AVISOS_MODO en .env: simular (por defecto: no envía nada), enviar o apagado.
 
@@ -33,7 +36,7 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import config, foto_cierre, telegram, tunnel  # noqa: E402
+from src import config, foto_cierre, fotos_dia, telegram, tunnel  # noqa: E402
 
 # La consola de Windows puede no soportar emojis: que nunca rompa la salida.
 if hasattr(sys.stdout, "reconfigure"):
@@ -54,6 +57,11 @@ _HORA_CIERRE = foto_cierre.hora_de(config.FOTO_CIERRE)
 _CIERRE_TXT = ("" if _HORA_CIERRE is None else
                f"Cierre del día: a las {foto_cierre.texto_hora(_HORA_CIERRE)} llegan solas, sin "
                "sonido, las mismas fotos del día anterior completo (00:00 a 24:00).\n")
+_HORAS_DIA = fotos_dia.horas_de(config.FOTOS_DIA)
+_DIA_TXT = ("" if not _HORAS_DIA else
+            "Cómo va el día: a las "
+            + ", ".join(foto_cierre.texto_hora(h) for h in _HORAS_DIA)
+            + " llegan solas, sin sonido, las fotos de hoy hasta esa hora.\n")
 AYUDA = ("Soy el bot de avisos de ZEIA. Cada comando manda una foto con SOLO lo que "
          "tuvo problemas hoy, de todas las empresas, de peor a mejor:\n"
          "/ambiental: salas (CO2, temperatura, humedad)\n"
@@ -61,7 +69,7 @@ AYUDA = ("Soy el bot de avisos de ZEIA. Cada comando manda una foto con SOLO lo 
          "/agua: medidores de agua\n"
          "En la barra del día: verde = llegaron lecturas, ámbar = hubo cortes, "
          "rojo = no llegó nada. Si todo va bien, responde solo con un mensaje.\n"
-         + _CIERRE_TXT +
+         + _CIERRE_TXT + _DIA_TXT +
          "\nAvisos automáticos: 🔴 al instante (gateway o plataforma caída), 🟠 en horario "
          "laboral (equipo o sala sin datos, batería, no mide) y un resumen 🟡 cada mañana.\n"
          "/avisos: qué está abierto y los últimos avisos\n"
@@ -168,6 +176,24 @@ def enviar_cierre(modulo: str, dia: date) -> None:
         f"({len(foto.problemas)} con problemas de {len(foto.filas)})")
 
 
+def enviar_foto_dia(modulo: str, hora_min: int) -> None:
+    """Foto de cómo va hoy, a una hora fija, sin sonido (la pide fotos_dia)."""
+    from src.foto_salas import foto_peores   # import tardío: Playwright pesa
+    t0 = time.time()
+    foto = foto_peores(modulo)
+    hora = foto_cierre.texto_hora(hora_min)
+    caption = f"🕒 Cómo va el día · foto de las {hora}\n{foto.caption}"
+    if len(caption) > 1024:          # límite de Telegram: mejor sin el encabezado
+        caption = foto.caption
+    if foto.png is None:
+        telegram.send_message(caption, silent=True)
+    else:
+        telegram.send_photo(foto.png, caption, silent=True,
+                            filename=f"dia_{modulo}_{hora.replace(':', '')}.png")
+    log(f"Foto de las {hora}: /{modulo} enviado en {time.time() - t0:.1f} s "
+        f"({len(foto.problemas)} con problemas de {len(foto.filas)})")
+
+
 def avisar_grupo(texto: str) -> None:
     telegram.send_message(texto, silent=True)
 
@@ -207,9 +233,12 @@ def main() -> int:
             log("Avisos automáticos apagados (AVISOS_MODO=apagado)")
         cierre = foto_cierre.Cierre(enviar_cierre, avisar_grupo, log=log)
         log(cierre.descripcion())
+        del_dia = fotos_dia.FotosDia(enviar_foto_dia, log=log)
+        log(del_dia.descripcion())
         offset, espera = None, 5
         while True:
             cierre.revisar()     # a su hora (o al volver el bot) manda el día que terminó
+            del_dia.revisar()    # a las horas de FOTOS_DIA manda cómo va hoy
             try:
                 updates = telegram.get_updates(offset=offset, timeout=POLL_S,
                                                allowed_updates=["message"])

@@ -143,3 +143,8 @@ AVISOS_CICLO_MIN = _int_env("AVISOS_CICLO_MIN", 5)                    # cada cu�
 # del día ANTERIOR completo (00:00–24:00). "apagado" la desactiva. No depende
 # de AVISOS_MODO: es la misma foto de los comandos, solo que llega sola.
 FOTO_CIERRE = os.getenv("FOTO_CIERRE", "00:10").strip()
+
+# Fotos del día (src/fotos_dia.py; las manda el bot): a estas horas (Lima,
+# separadas por coma) manda, sin sonido, las fotos de /ambiental, /energia y
+# /agua de HOY hasta esa hora. "apagado" las desactiva.
+FOTOS_DIA = os.getenv("FOTOS_DIA", "09:00,14:00,20:00").strip()
