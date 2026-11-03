@@ -20,6 +20,9 @@ Qué se guarda:
 Unidades: energía = punto (`energia:<id>`), ambiental = sensor de una sala
 (`ambiental:<device_id>`, sus indicadores son `ambiental:<device>:<id>`),
 agua = medidor (`agua:<id>`; se excluyen los virtuales `dependency`).
+
+Se vigila lo que reportó en los últimos 30 días, salvo lo que volvió solo unas
+horas después de 30 días o más sin datos (ver `Historia.vigilada`).
 """
 from __future__ import annotations
 
@@ -35,6 +38,8 @@ from .gateways import gateway_de
 from .monitor import EXCLUIR
 
 DIAS_ACTIVO = 30          # sin lecturas en 30 días = no se vigila (como /energia)
+VUELTA_HORAS = 24         # quien vuelve tras ≥30 días sin datos se vigila al juntar 24 h con datos
+PREVIAS_DIAS = 60         # horas con datos que se recuerdan antes de lo cargado (para esas 24 h)
 VIVO_DIAS = 15            # historia que se guarda en vivo (cadencias y referencias: 14 días)
 SNR_DIAS = 15             # días de SNR que se cargan (referencia = 14 días previos)
 CARGA_DIAS = 7            # la carga inicial va por tramos de 7 días (energía: ~10 s c/u)
@@ -158,6 +163,38 @@ SQL = {
         SELECT x.id AS uid FROM unnest(CAST(:ids AS bigint[])) AS x(id)
         WHERE EXISTS (SELECT 1 FROM readings_readingwater r
                       WHERE r.measurement_point_water_id = x.id)""",
+    # Horas con lecturas antes de lo cargado, solo de lo que reportó poco en lo
+    # cargado (recién instalado, muerto o que volvió unas horas): ver vigilada().
+    "horas_energia": """
+        SELECT measurement_point_id AS uid, date_trunc('hour', created_at) AS h
+        FROM readings_reading
+        WHERE measurement_point_id = ANY(:ids) AND created_at >= :ini AND created_at < :fin
+          AND "EPpos_value" IS NOT NULL
+        GROUP BY 1, 2""",
+    "horas_ambiental": """
+        SELECT indicator_device_id AS uid, date_trunc('hour', created_at) AS h
+        FROM readings_reading
+        WHERE indicator_device_id = ANY(:ids) AND created_at >= :ini AND created_at < :fin
+        GROUP BY 1, 2""",
+    "horas_agua": """
+        SELECT measurement_point_water_id AS uid, date_trunc('hour', created_at) AS h
+        FROM readings_readingwater
+        WHERE measurement_point_water_id = ANY(:ids) AND created_at >= :ini AND created_at < :fin
+          AND consumo_litros IS NOT NULL
+        GROUP BY 1, 2""",
+    # ¿Reportó alguna vez antes de :antes? (por índice: instantáneo)
+    "antes_energia": """
+        SELECT x.id AS uid FROM unnest(CAST(:ids AS bigint[])) AS x(id)
+        WHERE EXISTS (SELECT 1 FROM readings_reading r
+                      WHERE r.measurement_point_id = x.id AND r.created_at < :antes)""",
+    "antes_ambiental": """
+        SELECT x.id AS uid FROM unnest(CAST(:ids AS bigint[])) AS x(id)
+        WHERE EXISTS (SELECT 1 FROM readings_reading r
+                      WHERE r.indicator_device_id = x.id AND r.created_at < :antes)""",
+    "antes_agua": """
+        SELECT x.id AS uid FROM unnest(CAST(:ids AS bigint[])) AS x(id)
+        WHERE EXISTS (SELECT 1 FROM readings_readingwater r
+                      WHERE r.measurement_point_water_id = x.id AND r.created_at < :antes)""",
 }
 
 
@@ -172,6 +209,11 @@ def consultar_db(nombre: str, base: str, sql: str, params: dict) -> list:
 
 def _minuto(t: datetime) -> datetime:
     return t.astimezone(timezone.utc).replace(second=0, microsecond=0)
+
+
+def _hora(t: datetime) -> int:
+    """Hora epoch (UTC) del instante t."""
+    return int(t.timestamp() // 3600)
 
 
 def _excluida(empresa) -> bool:
@@ -253,6 +295,8 @@ class Historia:
         self.previa: dict = {}          # unidad → última lectura antes de t0 (≤ 30 días)
         self.instalada: dict = {}       # unidad → primera lectura, si empezó después de t0
         self.nunca: dict = {}           # unidad → alta (activa pero jamás reportó)
+        self.horas_previas: dict = {}   # unidad → [hora epoch] con lecturas antes de t0 (≤ 60 días)
+        self.antiguas: set = set()      # unidades con lecturas aún anteriores a esas horas
         self.cargado: dict = {}         # base → hasta dónde se cargó
         self._revisadas: set = set()
         self._aumentos: dict = {}
@@ -459,7 +503,8 @@ class Historia:
                 self.snr.setdefault(k, {})[r.dia] = float(r.snr)
 
     def _completar(self, base: str, t: datetime) -> None:
-        """Última lectura previa a t0 (≤30 días), quién nunca reportó y quién es nuevo."""
+        """Última lectura previa a t0 (≤30 días), quién nunca reportó, quién es nuevo
+        y las horas con datos previas de lo que reportó poco (para `vigilada`)."""
         pend = [k for k, u in self.unidades.items()
                 if u.modulo in MODULOS_DE[base] and k not in self._revisadas]
         primera = {k: self.pres[k].find(1) for k in pend}
@@ -467,13 +512,7 @@ class Historia:
         tardias = [k for k in pend if primera[k] < 0 or primera[k] > 60]
         desde = self.t0 - timedelta(days=DIAS_ACTIVO)
         for mod in MODULOS_DE[base]:
-            ks = [k for k in tardias if self.unidades[k].modulo == mod]
-            if not ks:
-                continue
-            if mod == "ambiental":
-                rd = {int(s.rsplit(":", 1)[1]): k for k in ks for s in self.series[k]}
-            else:
-                rd = {int(k.split(":")[1]): k for k in ks}
+            rd = self._rd(mod, [k for k in tardias if self.unidades[k].modulo == mod])
             if not rd:
                 continue
             for r in self._q(f"ult_{mod}", base, ids=sorted(rd), desde=desde, hasta=self.t0):
@@ -488,7 +527,36 @@ class Historia:
         for k in tardias:
             if k not in self.previa and primera[k] > 60:
                 self.instalada[k] = self._t(primera[k])
+        # Lo que no reportaba al empezar lo cargado o reportó poco: se traen sus horas
+        # con datos de antes, para saber si volvió de verdad o solo unas horas.
+        tarde = set(tardias)
+        h0, h1 = _hora(self.t0), _hora(t) + 1
+        self._cargar_previas(base, [k for k in pend if k not in self.nunca and (
+            k in tarde or self._con_datos(k, h0, h1) < VUELTA_HORAS)])
         self._revisadas.update(pend)
+
+    def _rd(self, mod: str, ks: list) -> dict:
+        """id en la base → unidad (ambiental: cada indicador de su sensor)."""
+        if mod == "ambiental":
+            return {int(s.rsplit(":", 1)[1]): k for k in ks for s in self.series[k]}
+        return {int(k.split(":")[1]): k for k in ks}
+
+    def _cargar_previas(self, base: str, claves: list) -> None:
+        """Horas con lecturas de los PREVIAS_DIAS días antes de t0 y si reportó aún antes."""
+        ini = self.t0 - timedelta(days=PREVIAS_DIAS)
+        for mod in MODULOS_DE[base]:
+            rd = self._rd(mod, [k for k in claves if self.unidades[k].modulo == mod])
+            if not rd:
+                continue
+            horas: dict = {}
+            for r in self._q(f"horas_{mod}", base, ids=sorted(rd), ini=ini, fin=self.t0):
+                if r.uid in rd:
+                    horas.setdefault(rd[r.uid], set()).add(_hora(r.h))
+            for k in set(rd.values()):
+                self.horas_previas[k] = sorted(horas.get(k, ()))
+            for r in self._q(f"antes_{mod}", base, ids=sorted(rd), antes=ini):
+                if r.uid in rd:
+                    self.antiguas.add(rd[r.uid])
 
     def actualizar(self, t: datetime) -> dict:
         """Carga lo que falte hasta t, base por base. Devuelve {base: error | None}.
@@ -562,6 +630,7 @@ class Historia:
         k = self._idx(_minuto(t - timedelta(days=dias)))
         if k < 1440:
             return
+        self._guardar_horas(k)
         for clave, ba in self.pres.items():   # quien queda sin datos guarda su última lectura
             if clave in self.unidades and ba.find(1, k) < 0:
                 j = ba.rfind(1, 0, k)
@@ -585,7 +654,57 @@ class Historia:
         self._prefijos.clear()
         self._refs.clear()
 
+    def _guardar_horas(self, k: int) -> None:
+        """Las horas con datos de los primeros k minutos (que se van a soltar) pasan a
+        horas_previas: vigilada() mira 30 días hacia atrás y en vivo se guardan 15."""
+        corte = self._t(k)
+        h_fin, h_lim = _hora(corte), _hora(corte - timedelta(days=PREVIAS_DIAS))
+        for clave in self.unidades:
+            if clave not in self.pres:
+                continue
+            h0, pre = self._horas_datos(clave)
+            nuevas = [h0 + i for i in range(max(0, min(len(pre) - 1, h_fin - h0)))
+                      if pre[i + 1] > pre[i]]
+            prev = list(self.horas_previas.get(clave, ()))
+            prev += [h for h in nuevas if not prev or h > prev[-1]]
+            j = bisect_left(prev, h_lim)
+            if j:
+                self.antiguas.add(clave)
+            if prev or clave in self.horas_previas:
+                self.horas_previas[clave] = prev[j:]
+
     # ---------- consultas en un instante t ----------
+
+    def vigilada(self, clave: str, t: datetime) -> Optional[datetime]:
+        """Última lectura antes de t si la unidad se vigila en t; si no, None.
+
+        Se vigila lo que reportó en los últimos 30 días, salvo lo que llevaba 30
+        días o más sin datos y volvió solo unas horas (menos de 24 h con datos en
+        los 30 días hasta su última lectura): se vigila recién al juntar esas 24 h.
+        El 23-oct las lecturas del medidor nuevo de Scotiabank SITE Barranco
+        llegaron 9 h al punto de Burger King (sin datos desde julio) y, cuando la
+        plataforma lo corrigió, salió un 🟠 de Burger King. Lo que nunca había
+        reportado (recién instalado) se vigila desde su primera lectura.
+        """
+        ult = self.ultima(clave, t)
+        if ult is None or t - ult > timedelta(days=DIAS_ACTIVO):
+            return None
+        return ult if self._en_marcha(clave, ult) else None
+
+    def _en_marcha(self, clave: str, ult: datetime) -> bool:
+        """¿Tiene 24 h con datos en los 30 días hasta `ult`, o nunca reportó antes de ellos?"""
+        hu, ha = _hora(ult) + 1, _hora(ult - timedelta(days=DIAS_ACTIVO))
+        h0 = _hora(self.t0)
+        n = self._con_datos(clave, max(ha, h0), hu)
+        if n >= VUELTA_HORAS:
+            return True
+        prev = self.horas_previas.get(clave, ())
+        n += max(0, bisect_left(prev, min(hu, h0)) - bisect_left(prev, ha))
+        if n >= VUELTA_HORAS:
+            return True
+        # Pocas horas con datos: ¿volvió tras ≥30 días sin datos o es nuevo?
+        return not (clave in self.antiguas or (prev and prev[0] < ha)
+                    or (ha > h0 and self._con_datos(clave, h0, ha) > 0))
 
     def ultima(self, clave: str, t: datetime) -> Optional[datetime]:
         """Última lectura ANTES del minuto de t (minuto exacto) o la previa a t0."""
@@ -756,15 +875,14 @@ class Historia:
         return valor, max(0.0, (fin - ini).total_seconds() / 3600)
 
     def observar(self, t: datetime) -> list:
-        """Obs de cada unidad vigilada en t (con lecturas en los últimos 30 días)."""
+        """Obs de cada unidad vigilada en t (ver `vigilada`)."""
         modulos = {m for b in self.cargado for m in MODULOS_DE[b]}
-        lim = timedelta(days=DIAS_ACTIVO)
         out = []
         for k, u in self.unidades.items():
             if u.modulo not in modulos:
                 continue
-            ult = self.ultima(k, t)
-            if ult is None or t - ult > lim:
+            ult = self.vigilada(k, t)
+            if ult is None:
                 continue
             o = ObsHistoria(self, u, ult)
             fresca = (t - ult).total_seconds() / 60 < av.umbral_sin_datos(u.cadencia)
@@ -804,8 +922,7 @@ class Historia:
         for k, u in self.unidades.items():
             if u.modulo not in modulos:
                 continue
-            ult = self.ultima(k, d1)
-            if ult is None or d1 - ult > timedelta(days=DIAS_ACTIVO):
+            if self.vigilada(k, d1) is None:
                 continue
             inst = self.instalada.get(k)
             if inst is not None and inst >= d1:

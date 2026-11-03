@@ -21,9 +21,9 @@ from src import avisos_vivo as vivo
 from src.avisos_datos import Historia
 
 try:
-    from tests.test_avisos_datos import FakeDB, T, cada, inv_energia
+    from tests.test_avisos_datos import FakeDB, T, burger_king, cada, inv_energia
 except ImportError:                     # python -m unittest discover -s tests
-    from test_avisos_datos import FakeDB, T, cada, inv_energia
+    from test_avisos_datos import FakeDB, T, burger_king, cada, inv_energia
 
 RUTA = Path(__file__).resolve().parent.parent / "scripts" / "avisos.py"
 _spec = importlib.util.spec_from_file_location("avisos_script", RUTA)
@@ -171,6 +171,31 @@ class MotorTest(unittest.TestCase):
                             for x in textos), textos)
         ciclo = json.loads(m.store.leer("ciclo"))
         self.assertIn("túnel caído", ciclo["errores"]["energia"])
+
+    def test_burger_king_del_23_oct_no_suena(self):
+        """Lo que pasó el 23-oct, ciclo a ciclo desde las 05:48 (cuando arrancó el bot)."""
+        db = db_dos_puntos(T(10, 8), T(10, 24))
+        burger_king(db)
+        reloj = Reloj(T(10, 23, 5, 48))
+        m = vivo.Motor(modo="simular", store=vivo.Store(":memory:"), reglas=av.Reglas(),
+                       crear_historia=lambda _t: Historia(T(10, 8, 5, 48), db),
+                       ahora=reloj, log=lambda x: None, ciclo_min=5, pausa_s=0)
+        textos = []
+        while reloj.t <= T(10, 23, 20):
+            textos += [x.texto for x in m.ciclo()]
+            reloj.t += timedelta(minutes=5)
+        self.assertFalse(any("Burger King" in x for x in textos), textos)
+        resumen = [x for x in textos if "Resumen ZEIA de ayer, jueves 22 oct" in x][0]
+        self.assertIn("Vigilados: 2 equipos de energía.", resumen)
+        # Si había quedado abierto (como en el bot real), se cierra sin avisar.
+        estado = m.store.estado()
+        estado.abiertos["sin_datos|energia:108"] = av.Incidente(
+            "sin_datos|energia:108", "sin_datos", av.NARANJA, T(10, 23, 13, 3), T(10, 23, 11, 59),
+            "Tablero General TG-1", "Burger King Salaverry", avisado=True,
+            unidades=["energia:108"])
+        m.store.guardar_estado(estado)
+        self.assertEqual(m.ciclo(), [])
+        self.assertNotIn("sin_datos|energia:108", m.store.estado().abiertos)
 
 
 class Backtest(unittest.TestCase):

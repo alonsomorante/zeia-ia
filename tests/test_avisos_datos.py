@@ -156,6 +156,31 @@ class FakeDB:
     def q_alguna_agua(self, p):
         return [F(uid=u) for u in p["ids"] if self.agua.get(u)]
 
+    def _horas(self, fuente, p):
+        horas = {(u, hora(x[0])) for u in p["ids"] for x in fuente.get(u, []) if self._en(x[0], p)}
+        return [F(uid=u, h=h) for u, h in sorted(horas)]
+
+    def q_horas_energia(self, p):
+        return self._horas(self.energia, p)
+
+    def q_horas_ambiental(self, p):
+        return self._horas(self.ambiental, p)
+
+    def q_horas_agua(self, p):
+        return self._horas(self.agua, p)
+
+    def _antes(self, fuente, p):
+        return [F(uid=u) for u in p["ids"] if any(x[0] < p["antes"] for x in fuente.get(u, []))]
+
+    def q_antes_energia(self, p):
+        return self._antes(self.energia, p)
+
+    def q_antes_ambiental(self, p):
+        return self._antes(self.ambiental, p)
+
+    def q_antes_agua(self, p):
+        return self._antes(self.agua, p)
+
 
 def inv_energia(uid, nombre, empresa="Sanna", sede="San Borja", tablero="TG-P1",
                 eui="009569060004F73E", alta=None):
@@ -417,6 +442,79 @@ class AguaYAltas(unittest.TestCase):
         self.assertEqual(h.t0, T(10, 2).astimezone(UTC))
         self.assertEqual(h.ultima("energia:1", T(10, 3, 12)), T(10, 3, 11, 50))
         self.assertEqual(h.ultima("energia:7", T(10, 3)), T(9, 20, 8))
+
+
+def burger_king(db: FakeDB) -> None:
+    """Punto 108 de Burger King como en producción: 13 lecturas el 31-jul y, el 23-oct
+    de 02:52 a 11:59, las del medidor nuevo de Scotiabank SITE Barranco mal asignadas."""
+    db.inv_e.append(inv_energia(108, "Tablero General TG-1", "Burger King", "Salaverry",
+                                "Tablero General T-G - Burger King", "24e1246200000108"))
+    db.energia[108] = ([(t, 0.0) for t in cada(T(7, 31, 11, 37), T(7, 31, 11, 50))]
+                       + [(t, 0.2 * i) for i, t in enumerate(cada(T(10, 23, 2, 52), T(10, 23, 12)))])
+
+
+class VueltaTrasMeses(unittest.TestCase):
+    """Lo que vuelve solo unas horas tras ≥30 días sin datos no se vigila."""
+
+    def setUp(self):
+        db = FakeDB()
+        db.inv_e = [inv_energia(1, "Llave general"),
+                    inv_energia(50, "Chiller", tablero="TGA (N)"),
+                    inv_energia(234, "Llave general", "Scotiabank", "SITE Barranco",
+                                "Tablero General TG-N SITE", "24e1246200000234", T(10, 12)),
+                    inv_energia(300, "Tablero nuevo", "Scotiabank", "Barranco", "TG-N",
+                                "24e1246200000300", T(10, 19))]
+        burger_king(db)
+        db.energia[1] = [(t, 1000.0 + i) for i, t in enumerate(cada(T(10, 1), T(10, 26)))]
+        # Chiller: reportó en julio, quedó apagado y volvió de verdad el 22-oct a las 10:00.
+        db.energia[50] = ([(t, 1.0 * i) for i, t in enumerate(cada(T(7, 1), T(7, 20), 10))]
+                          + [(t, 5000.0 + i) for i, t in enumerate(cada(T(10, 22, 10), T(10, 26)))])
+        # Nuevos (nunca habían reportado): el medidor de SITE Barranco ya en su punto, y
+        # uno que reportó 3 h y se calló (su corte sí se avisa).
+        db.energia[234] = [(t, 99.76 + 0.2 * i)
+                           for i, t in enumerate(cada(T(10, 23, 12), T(10, 26)))]
+        db.energia[300] = [(t, 1.0 * i) for i, t in enumerate(cada(T(10, 23, 2, 10), T(10, 23, 5, 41)))]
+        self.db = db
+        self.h = Historia(T(10, 10), db)
+        self.h.actualizar(T(10, 25))
+
+    def test_burger_king_no_se_vigila(self):
+        h = self.h
+        self.assertIsNone(h.vigilada("energia:108", T(10, 23, 9)))   # ni mientras llegaban
+        t = T(10, 23, 13, 5)                                          # cuando salió el 🟠
+        self.assertIsNone(h.vigilada("energia:108", t))
+        self.assertEqual({o.unidad.clave for o in h.observar(t)},
+                         {"energia:1", "energia:50", "energia:234", "energia:300"})
+        for dia in (date(2026, 10, 23), date(2026, 10, 24)):
+            self.assertNotIn("energia:108", {d.unidad.clave for d in h.dia(dia)})
+
+    def test_lo_nuevo_se_vigila_desde_su_primera_lectura(self):
+        self.assertEqual(self.h.vigilada("energia:234", T(10, 23, 12, 30)), T(10, 23, 12, 29))
+        self.assertEqual(self.h.vigilada("energia:300", T(10, 23, 8, 3)), T(10, 23, 5, 40))
+
+    def test_lo_que_vuelve_de_verdad_se_vigila_al_juntar_24_h(self):
+        self.assertIsNone(self.h.vigilada("energia:50", T(10, 22, 20)))      # 10 h
+        self.assertIsNotNone(self.h.vigilada("energia:50", T(10, 23, 11)))   # 25 h
+
+    def test_tras_reiniciar_el_bot_tampoco(self):
+        # El 10-nov el 23-oct ya quedó antes de lo cargado: solo se sabe su última lectura.
+        h = Historia(T(10, 26), self.db)
+        h.actualizar(T(11, 10))
+        self.assertEqual(h.previa["energia:108"], T(10, 23, 11, 59))
+        self.assertIsNone(h.vigilada("energia:108", T(11, 10)))
+        self.assertIsNotNone(h.vigilada("energia:1", T(11, 10)))     # caído el 25-oct: se vigila
+        self.assertIsNotNone(h.vigilada("energia:300", T(11, 10)))   # nuevo que se calló
+
+    def test_en_vivo_lo_que_se_recorta_no_se_olvida(self):
+        db = FakeDB()
+        db.inv_e = [inv_energia(60, "Tablero viejo", "KFC", "Salaverry", "TG", "24e1246200000060")]
+        db.energia[60] = ([(t, 1.0 * i) for i, t in enumerate(cada(T(9, 1), T(9, 10)))]
+                          + [(t, 9000.0) for t in cada(T(10, 20, 8), T(10, 20, 13))])
+        h = Historia(T(9, 1), db)
+        h.actualizar(T(9, 15))             # reportaba bien: no hace falta mirar más atrás
+        h.actualizar(T(10, 21))
+        h.recortar(T(10, 21), dias=15)     # septiembre sale de la memoria…
+        self.assertIsNone(h.vigilada("energia:60", T(10, 20, 15)))   # …pero no se olvida
 
 
 if __name__ == "__main__":

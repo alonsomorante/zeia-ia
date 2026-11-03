@@ -9,3 +9,4 @@ uvicorn>=0.29
 pypdf>=4.0
 pdf-inspector>=0.2
 markdown>=3.0  # conversión de docs a PDF (respuesta_jefe, etc.)
+playwright==1.60.0  # fotos del bot de Telegram (HTML → PNG)
