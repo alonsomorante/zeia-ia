@@ -2709,3 +2709,227 @@ conserva por los hallazgos de la base.
   `ignore_cleanup_errors` en Python 3.9); en el servidor 168/168.
 - Desplegado como `1e0bf91-local`: incluye los cambios sin commit de
   `src/avisos_datos.py` (Burger King, 26-oct). Falta commit.
+
+## Sesión 13-nov-2026 — Reporte manual de alertas y correos (PDF)
+
+### Qué se pidió
+Un reporte **manual** (se cambian las fechas a mano, no se automatiza ni envía
+correos) con las alertas y notificaciones por correo de energía, agua y
+ambiental: cantidad, empresa, sala, punto, fecha, hora, tipo de alerta y
+destinatarios. Salida en PDF.
+
+### Qué se hizo
+- `scripts/reporte_alertas.py` (nuevo, ~2.100 líneas): portada con KPIs,
+  gráficos (día, tipo, hora) y comparativa con el periodo anterior y hace 4
+  semanas; una sección por semana ISO; anexos A (evento por evento, opcional),
+  B (configuración de correos **actual**) y C (metodología y limitaciones).
+  Horizontal (letter landscape), Chrome/Edge headless.
+- `src/reporte_pdf.py` (nuevo): `buscar_chrome`, `imprimir_pdf`, `_pdf_listo`
+  (espera tamaño estable + `%%EOF`) y limpieza; lo comparte el reporte nuevo.
+- `scripts/reporte_alertas.cmd` (nuevo): atajo Windows que fuerza los túneles de
+  producción (energía 55432, ambiental 5435) sin tocar `.env`.
+- `tests/test_reporte_alertas.py` (nuevo, 28 pruebas): formato, semanas,
+  episodios, límites, HTML, filtro, SQL, carga con `mock` y huecos, y el
+  detector de PDF. Suite completa: **260 pruebas OK**.
+
+### Decisiones
+- **Episodios**: las alertas repetidas del mismo punto/tipo se agrupan con corte
+  de 15 min (`--corte`, `0` = una alerta por episodio). El anexo A sigue siendo
+  evento por evento.
+- **Fuentes**: energía `alerts_alert` + `alerts_alertthreshold`; agua
+  `alerts_wateralert`; ambiental `alerts_limitalert` («Limit Alerts»).
+  `alerts_incidentalert` está vacía y no se usa.
+- **`reported=true` no es un correo enviado**: se explica en portada y anexo C
+  (hay alertas reportadas con el correo del umbral desactivado).
+- **Destinatarios = configuración actual**: la base no versiona cambios ni
+  guarda log de envíos.
+- **Correos de «sin datos» ambiental**: inferidos de los huecos de lecturas
+  ≥ `timeout_minutes`; se marcan INFERIDO en el PDF.
+- **Nivel ambiental** se guarda crudo (`UNHEALTHY`, `TEMP_MAX`…) y se traduce al
+  mostrar. Severidad: `CRITICAL/DANGEROUS/TEMP_MAX` = Crítica;
+  `UNHEALTHY/HUMIDITY_*/TEMP_MIN` = Alta; `MODERATE` = Media; `GOOD` = Baja.
+- **`--empresa`** filtra eventos, límites, huecos, comparativa y anexo B.
+- Se excluyen las empresas de prueba (`src/monitor.py:EXCLUIR`), igual que el
+  monitor y el reporte de conectividad.
+
+### Validación contra producción
+- 1 día (10-nov): 316 alertas, 6 págs. Semana 2–8 nov: 5 energía, 1.951 Limit
+  Alerts, 14 huecos, 9 págs. Dos semanas 19-oct→1-nov: 5.021 alertas,
+  164 episodios/grupos, 352 críticas, 52 s, 16 págs.
+- Números cruzados con SQL directo (energía 5 = Oechsle 3 + Sanna 2; agua 0;
+  ambiental 1.951). Por nivel (2–8 nov): HUMIDITY_MAX 985, TEMP_MIN 558,
+  TEMP_MAX 315, UNHEALTHY 79, DANGEROUS 8, HUMIDITY_MIN 2, MODERATE 2, GOOD 1,
+  CRITICAL 1.
+- Sin desbordes de tablas verificado con Playwright en modo `print` (980 px).
+
+### Tropiezos
+- PowerShell 5.1 `Get-Content`/`Set-Content` corrompió `tests/test_reporte_alertas.py`
+  (mojibake + BOM + una línea de import rota). Se revirtió con
+  `encode("cp1252").decode("utf-8")` desde Python y se arregló el import. **No
+  volver a editar archivos UTF-8 con PowerShell.**
+- `importlib` + dataclasses exige registrar el módulo en `sys.modules` antes de
+  `exec_module`.
+- `alerts_limitalert.level` debe quedarse crudo: traducirlo en la carga rompía
+  la severidad y los conteos por tipo.
+
+### Ampliación 13-nov-2026 — todos los correos, no solo alertas
+
+**Pedido:** el reporte debía listar *todos* los correos posibles del sistema
+(alertas **y** reportes de estado/cobertura/consumo), no solo las alertas.
+
+**Hallazgos en producción (energía):**
+- `alerts_currentstatusreportschedule`: 36 filas de configuración activas, todas
+  de Oechsle Salaverry → 18 puntos a las **12:05** (apertura,
+  `should_be_on=true`) y los mismos 18 a las **21:05** (cierre). Se envían
+  **2 correos/día** (uno por horario, con los 18 puntos dentro), no 36. Antes
+  solo aparecían como configuración en el anexo B.
+- `alerts_dailycoveragereportschedule`: 3 (Sanna, Oechsle, Scotiabank) = 3/día.
+- `alerts_monthlyconsumptionreportschedule`: 1 (Scotiabank) = 1/mes.
+- `alerts_alert.email_summary_reported_at`: **149 resúmenes** entre el 08-may y
+  el **26-oct**, todos a las **17:00** Lima (no 12:05). Desde el 27-oct no hay
+  ninguno marcado: el resumen diario dejó de registrarse.
+- `alerts_nodatamonitor`: 32 monitores, 31 activos, **`alert_sent_at` NULL en
+  todos** → el aviso de sin datos de energía nunca registró un envío.
+- Ambiental: `alerts_incidentalert` 0 filas, `alerts_incidenttracking` 1;
+  `equipments_device.last_missing_alert_sent` solo guarda el último aviso
+  (10 equipos con aviso activo, 13 con último aviso). Sin histórico.
+- `django_celery_results_taskresult.task_name` viene vacío en las 8.028 filas:
+  no sirve como log de envíos.
+
+**Cambios:**
+- `Correo` (dataclass) + `cargar_correos`: arma todos los correos del periodo,
+  cada uno con evidencia **Registrado** (hora en la base), **Programado**
+  (config activa, sin log) o **Inferido** (huecos). `Evento` gana
+  `reportada_cuando` (`reported_at`), así el correo se fecha cuando salió.
+- Portada: segunda fila de KPIs (registrados / programados / inferidos / total)
+  y tabla **Correos del periodo** por tipo, con frecuencia, N, destinatarios y
+  empresas.
+- **Anexo D · Correos, día por día**: una fila por correo; las alertas se
+  agrupan por día y punto (su hora exacta queda en el anexo A) y el estado
+  actual sale como **un correo por horario** con sus 18 puntos listados. Los que
+  caen fuera del rango (p. ej. alerta del último día reportada al siguiente)
+  salen en "Otros días", no se pierden.
+- `--sin-correos` omite el anexo D. `--empresa` también filtra los correos.
+- Anexo B: nota con el último resumen registrado; anexo C: fuentes de reportes
+  y "Programado ≠ enviado".
+- `tests/test_reporte_alertas.py`: +12 pruebas (40 en total). Suite **272 OK**.
+
+**Números validados (solo lectura):**
+| Periodo | Alertas | Correos |
+|---|---|---|
+| 02–08 nov (7 días) | 1.956 | 54 = 5 registrados + 35 programados + 14 inferidos |
+| 19-oct→01-nov (14 días) | 5.021 | 2.249 = 2.159 registrados (2.151 alertas + 8 resúmenes) + 71 programados + 19 inferidos |
+
+Los programados son **un correo por horario**, no uno por punto: el reporte de
+estado actual incluye los 18 puntos de Oechsle Salaverry en un solo correo
+(2/día), más la cobertura diaria (1 por empresa: 3/día) y el consumo mensual
+(1/mes).
+
+Rendimiento: 59 s (1 semana) y 67 s (2 semanas). PDF: 13 y 28 páginas; sin
+desbordes en modo impresión. Con `--empresa Scotiabank` (sin alertas esa
+semana) genera igual el PDF con sus 7 correos de cobertura diaria.
+
+### Reorganización 13-nov-2026 — orden y portada
+
+**Problema:** el PDF creció por acumulación y no se entendía. La portada tenía
+10 KPIs, 2 notas largas, 3 gráficos y 4 bloques; la sección semanal repetía los
+mismos gráficos y casi los mismos KPIs; y el detalle de correos (lo que se había
+pedido) quedaba al final, después de configuración y metodología.
+
+**Nuevo orden:**
+1. **Resumen** (1 página): 4 KPIs con subtexto —correos 54 (5/35/14), alertas
+   1.956, críticas 326, equipos 15—, una nota de 3 líneas que explica la
+   relación alerta→correo, **gráfico de correos por día** (apilado por tipo),
+   tabla de correos por tipo y **3 hallazgos** (dónde se concentran, correos que
+   dejaron de salir, alertas sin correo).
+2. **Correos del periodo**, día por día (antes "Anexo D").
+3. **Alertas**: 4 KPIs, 2 gráficos (día y tipo), resumen por empresa,
+   comparativa y las tablas de episodios, Limit Alerts y huecos. Si el rango
+   abarca varias semanas, cada una añade su propia sección con las tablas.
+- **Anexo A** evento por evento (opcional, `--detalle`), **A1** configuración,
+  **A2** metodología.
+
+**Cambios:** `.kpis` a 4 columnas con `.kpi .s` para el desglose; nueva
+`chart_correos_dia`; `_dest_celda(..., tope=N)` recorta listas largas en la
+portada; índice de una línea bajo la cabecera. Se quitó la duplicación de
+gráficos y el bloque de hallazgos repetido; `chart_horas`/`conteo_horas` y
+`_bloque_hallazgos` quedaron sin uso y se eliminaron.
+Pruebas: 40 del reporte (se ajustaron las que buscaban "Anexo B/C/D" y el
+título viejo). Suite completa: **272 OK**.
+
+### Regla de correo de ambiental (13-nov-2026)
+
+Confirmado por el negocio: en ambiental **solo humedad y temperatura generan
+correo**, y solo en Sanna, a estos 5 destinatarios:
+`diego.florian@`, `franco.ordonez@`, `julio.villavicencio@`, `marco.tasayco@`
+y `oscar.alania@sanna.pe`. **CO₂ no genera correo**.
+
+- `DEST_AMBIENTAL` e `INDICADORES_CON_CORREO` en `scripts/reporte_alertas.py`.
+  No salen de la base (no hay tabla de destinatarios ambientales): son
+  configuración conocida; si cambian, se actualizan ahí.
+- Cada alerta de humedad/temperatura cuenta como **1 correo** con evidencia
+  **Programado** (la base no guarda el envío). Se advierte en A2: si la
+  plataforma agrupa, el número real sería menor.
+- A1 muestra la regla en una tabla (Sanna · Humedad/Temperatura · Sí · los 5 /
+  CO₂ · No).
+- Semana 2–8 nov: **1.915 correos** = 5 registrados + 1.896 programados
+  (1.861 ambientales + 35 reportes) + 14 inferidos. 17 páginas (el detalle de
+  correos crece porque ahora incluye las alertas ambientales agrupadas por día
+  y punto). Pruebas del reporte: **42**.
+
+### Distribución por módulo (13-nov-2026)
+
+**Pedido:** 1. Resumen general de alertas vs correos (KPIs); 2. Energía por
+empresa (Sanna, Oechsle, Scotiabank) y por día; 3. Agua (Scotiabank);
+4. Ambiental (Sanna). Cada bloque con sus KPIs y un tablón de alertas vs correos.
+
+**Nuevo orden del PDF:**
+1. **Resumen general**: 4 KPIs, gráfico de correos por día, tabla
+   `Alertas vs correos por módulo` (alertas / correos / registrados /
+   programados / inferidos) y 3 hallazgos.
+2. **Energía** / 3. **Agua** / 4. **Ambiental**: 4 KPIs del módulo (alertas,
+   correos, críticas, empresas) y un **tablón por empresa** con filas por día:
+   alertas, críticas, correos registrados/programados/inferidos y total.
+   Si un correo se envía fuera del rango (alerta del último día reportada al
+   siguiente), aparece en la fila "Otros días" para que los totales cuadren.
+   Si el módulo no tiene datos, lo dice explícitamente.
+- **A** evento por evento (`--detalle`), **B** configuración y **C**
+  metodología. (El detalle de correos se integró en cada empresa; ver abajo.)
+
+**Datos de la semana 2–8 nov:** Energía 5 alertas → 40 correos (Oechsle 24,
+Sanna 9, Scotiabank 7 por cobertura); Agua 0/0; Ambiental 1.951 alertas →
+1.875 correos (1.861 + 14 huecos). Total: 1.956 alertas y 1.915 correos.
+Pruebas del reporte: **44**.
+
+### Detalle de correos dentro de cada empresa (13-nov-2026)
+
+El anexo global "Correos, día por día" repetía lo que ya contaban los tablones.
+Ahora, debajo del tablón de cada empresa va su propio **"Correos, día por día"**
+(día, hora, tipo, detalle, N, destinatarios, nota, evidencia). El anexo global
+desaparece; los anexos quedan **A** eventos, **B** configuración y **C**
+metodología.
+
+- El estado actual se muestra como "18 puntos (ver configuración)" para no
+  repetir el listado de puntos cada día.
+- El PDF de la semana 2–8 nov baja de 17 a **12 páginas**.
+- `tests/test_reporte_alertas.py`: se ajustó el test del detalle (ya no hay
+  "B · Correos"). 44 pruebas.
+
+### Sin anexos, KPIs por empresa y cobertura a las 05:00 (13-nov-2026)
+
+- **Fuera los anexos** A (eventos), B (configuración) y C (metodología). El PDF
+  queda en: 1 Resumen + 2 Energía + 3 Agua + 4 Ambiental. 8 páginas la semana.
+- **KPIs por empresa**: se eliminó el tablón por día; en su lugar cada empresa
+  muestra alertas, correos (reg/prog/inf), críticas y **cobertura media de
+  datos**, y debajo su detalle de correos día por día.
+- **Cobertura diaria de energía a las 05:00**: el correo reporta el día anterior.
+  En el detalle: `90,7% de cobertura del dom 01 nov · 23.519 lecturas en 18 puntos`.
+- **Cálculo nuevo** (`SQL_COBERTURA` + `cargar_cobertura`): lecturas reales /
+  (puntos × 1.440) por empresa y día. Jerarquía corregida:
+  `measurementpoint → device → electricalpanel → energyheadquarter → enterprise`
+  (la primera versión usaba `mp.electrical_panel_id`, que no existe). Se toma el
+  máximo de puntos del periodo como denominador para que un punto caído no
+  infle el %.
+- La consulta añade ~15 s (75 s la semana). `--detalle` ya no hace nada; los
+  anexos se eliminaron.
+- Pruebas: **275** (se quitó el test del anexo A).

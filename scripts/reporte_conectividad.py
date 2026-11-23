@@ -80,6 +80,11 @@ from statistics import mean
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+# En Windows la consola usa cp1252; forzar UTF-8 para imprimir "→", "·", etc.
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from sqlalchemy import text  # noqa: E402
 
 from src import tunnel  # noqa: E402
