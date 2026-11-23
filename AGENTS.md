@@ -90,6 +90,9 @@ src/
                         backtest(). AVISOS_MODO = simular (defecto) | enviar | apagado
   agent.py              Loop del agente (OpenRouter, máx 15 iteraciones, temperature 0.1)
   prompts.py            System prompt con TODO el conocimiento del dominio (¡mantener al día!)
+  reporte_pdf.py        Helpers compartidos de los reportes: buscar Chrome/Edge y
+                        imprimir HTML → PDF headless (espera a que el archivo esté
+                        completo: tamaño estable + %%EOF)
 docs/
   bitacora.md           ★ Historial de sesiones: hallazgos, decisiones, resultados
                         (leer al inicio de toda sesión; actualizar al final)
@@ -111,6 +114,36 @@ scripts/
                         medidor de agua dependiente sale solo él, medido con las
                         lecturas de su fuente (la fuente no se muestra).
                         Consulta en vivo; Chrome headless
+  reporte_alertas.py    ★ Reporte MANUAL de alertas y notificaciones por correo
+                        (energía + agua + ambiental) en PDF, para un rango elegido
+                        a mano (--desde/--hasta; default: semana pasada). Orden:
+                        1. Resumen general (4 KPIs, gráfico de correos por día,
+                        tabla alertas vs correos por módulo y 3 hallazgos);
+                        2. Energía, 3. Agua y 4. Ambiental: cada bloque separa por
+                        empresa, con 4 KPIs (alertas, correos, críticas y cobertura
+                        media de datos) y debajo el detalle de correos día por día
+                        (registrados / programados / inferidos). La cobertura diaria
+                        de energía se envía a las 05:00 y en el detalle muestra el %
+                        de cobertura de datos del día anterior (lecturas / puntos ×
+                        1,440). Los envíos fuera del rango salen en su propia fila.
+                        Sin anexos.
+                        Agrupa alertas repetidas en episodios (--corte, default 15
+                        min; 0 = una por alerta).
+                        Fuentes: alerts_alert + alertthreshold (energía),
+                        alerts_wateralert (agua), alerts_limitalert (ambiental),
+                        huecos de lecturas ≥ timeout_minutes (correos de «sin
+                        datos» ambiental, marcados INFERIDO) y las tablas de
+                        reportes programados (estado actual: 1 correo por horario
+                        12:05/21:05 con todos sus puntos; cobertura diaria; consumo
+                        mensual). Cada correo lleva su evidencia: Registrado (la base
+                        guarda la hora), Programado (solo configuración: no hay log
+                        de envíos) o Inferido. En ambiental solo humedad y
+                        temperatura de Sanna generan correo (5 destinatarios,
+                        regla de negocio); CO₂ no. --sin-correos omite el anexo B.
+                        Solo lectura; no envía nada.
+                        Contra producción: scripts\reporte_alertas.cmd
+  reporte_alertas.cmd   Atajo Windows del anterior: fuerza los túneles SSH de
+                        producción (energía 55432, ambiental 5435) sin tocar .env
   telegram_setup.py     Valida el token del bot, muestra el id del grupo y con
                         --test manda 2 mensajes de prueba (con y sin sonido)
   telegram_bot.py       Bot del grupo (long polling, sin URL pública):
@@ -288,6 +321,10 @@ python scripts/introspect.py          # regenerar docs del esquema
 python scripts/analisis_huecos.py --export   # informe de huecos → dashboard :8000/gaps
 python scripts/reporte_conectividad.py       # PDF semana pasada, todas las empresas → ~/Downloads
 python scripts/reporte_conectividad.py --desde 2026-09-28 --hasta 2026-10-04 --empresa Sanna
+python scripts/reporte_alertas.py --desde 2026-11-02 --hasta 2026-11-08   # PDF de alertas/correos
+python scripts/reporte_alertas.py --desde 2026-10-01 --hasta 2026-10-31 --detalle --empresa Sanna
+                                      #   --detalle = anexo evento por evento; --corte N min
+scripts\reporte_alertas.cmd --desde 2026-11-02 --hasta 2026-11-08   # contra PRODUCCIÓN (túneles)
 python eval/compare_models.py --questions q1_empresas_puntos  # eval rápida
 python scripts/telegram_setup.py      # bot de avisos: valida token + id del grupo
 python scripts/telegram_setup.py --test   # 2 mensajes de prueba al grupo
